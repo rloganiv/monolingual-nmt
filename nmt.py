@@ -229,6 +229,7 @@ def train_ae(optimizer, criterion, autoencoder, ntokens, source, target, lengths
         flattened_output.masked_select(output_mask).view(-1, ntokens)
     loss = criterion(masked_output, masked_target)
     loss.backward()
+    autoencoder.embedding.zero_grad()
     optimizer.step()
     return loss, output
 
