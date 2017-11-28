@@ -313,6 +313,14 @@ class DataLoaderIter(object):
 
     def __len__(self):
         return math.ceil(len(self.dataset.src_data[0])/float(self.batch_size))
+
+    def distort(self, sentence):
+        """Permutes continguous pairs of words in sentence"""
+        n = len(sentence)
+        swap_indices = random.shuffle(range(n-1))[:n/2] # Only works in Python 2
+        for ind in swap_inds:
+            x, y = sentence[ind:ind+2]
+            sentence[ind:ind+2] = y, x
      
     def collate_mono(self, batch):
         lengths = [len(x)-1 for x in batch]
@@ -333,6 +341,9 @@ class DataLoaderIter(object):
             
             src = src[:max_len]
             tgt = tgt[:max_len]
+
+            self.distort(src)
+
             src_tensor.append(torch.LongTensor(src).unsqueeze(0))
             tgt_tensor.append(torch.LongTensor(tgt).unsqueeze(0))
             targets.extend(tgt)
