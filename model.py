@@ -222,6 +222,7 @@ class Seq2SeqAttention(nn.Module):
         ctx_hidden_dim,
         attention_mode,
         batch_size,
+        fixed_embeddings=False,
         bidirectional=True,
         nlayers=2,
         nlayers_trg=2,
@@ -252,6 +253,12 @@ class Seq2SeqAttention(nn.Module):
             trg_vocab_size,
             trg_emb_dim
         )
+        
+        if fixed_embeddings:
+            for p in self.src_embedding.parameters():
+                p.requires_grad = False
+            for p in self.trg_embedding.parameters():
+                p.requires_grad = False
 
         self.src_hidden_dim = src_hidden_dim // 2 \
             if self.bidirectional else src_hidden_dim

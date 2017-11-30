@@ -113,6 +113,7 @@ if len(gpuid)>1:
         trg_hidden_dim=config['model']['dim'],
         ctx_hidden_dim=config['model']['dim'],
         attention_mode='dot',
+        fixed_embeddings=True,
         batch_size=config['data']['batch_size'],
         bidirectional=config['model']['bidirectional'],
         nlayers=config['model']['n_layers_src'],
@@ -129,6 +130,7 @@ if len(gpuid)>1:
         trg_hidden_dim=config['model']['dim'],
         ctx_hidden_dim=config['model']['dim'],
         attention_mode='dot',
+        fixed_embeddings=True,
         batch_size=config['data']['batch_size'],
         bidirectional=config['model']['bidirectional'],
         nlayers=config['model']['n_layers_src'],
@@ -146,6 +148,7 @@ else:
                 trg_hidden_dim=config['model']['dim'],
                 ctx_hidden_dim=config['model']['dim'],
                 attention_mode='dot',
+                fixed_embeddings=True,
                 batch_size=config['data']['batch_size'],
                 bidirectional=config['model']['bidirectional'],
                 nlayers=config['model']['n_layers_src'],
@@ -160,6 +163,7 @@ else:
                 trg_hidden_dim=config['model']['dim'],
                 ctx_hidden_dim=config['model']['dim'],
                 attention_mode='dot',
+                fixed_embeddings=True,
                 batch_size=config['data']['batch_size'],
                 bidirectional=config['model']['bidirectional'],
                 nlayers=config['model']['n_layers_src'],
@@ -174,6 +178,7 @@ else:
                 trg_hidden_dim=config['model']['dim'],
                 ctx_hidden_dim=config['model']['dim'],
                 attention_mode='dot',
+                fixed_embeddings=True,
                 batch_size=config['data']['batch_size'],
                 bidirectional=config['model']['bidirectional'],
                 nlayers=config['model']['n_layers_src'],
@@ -188,6 +193,7 @@ else:
                 trg_hidden_dim=config['model']['dim'],
                 ctx_hidden_dim=config['model']['dim'],
                 attention_mode='dot',
+                fixed_embeddings=True,
                 batch_size=config['data']['batch_size'],
                 bidirectional=config['model']['bidirectional'],
                 nlayers=config['model']['n_layers_src'],
@@ -199,17 +205,20 @@ else:
         autoencoder_L2 = autoencoder_L2.cuda()
         seq2seq_L1_L2 = seq2seq_L1_L2.cuda()
         seq2seq_L2_L1 = seq2seq_L2_L1.cuda()
+
+def trainable_params(model):
+    return filter(lambda p: p.requires_grad, model.parameters())
     
-optimizer_auto_L1 = optim.Adam(autoencoder_L1.parameters(),
+optimizer_auto_L1 = optim.Adam(trainable_params(autoencoder_L1),
                            lr=0.0002,
                            betas=(0.5, 0.999))
-optimizer_auto_L2 = optim.Adam(autoencoder_L2.parameters(),
+optimizer_auto_L2 = optim.Adam(trainable_params(autoencoder_L2),
                            lr=0.0002,
                            betas=(0.5, 0.999))
-optimizer_L1_L2 = optim.Adam(seq2seq_L1_L2.parameters(),
+optimizer_L1_L2 = optim.Adam(trainable_params(seq2seq_L1_L2),
                            lr=0.0002,
                            betas=(0.5, 0.999))
-optimizer_L2_L1 = optim.Adam(seq2seq_L2_L1.parameters(),
+optimizer_L2_L1 = optim.Adam(trainable_params(seq2seq_L2_L1),
                            lr=0.0002,
                            betas=(0.5, 0.999))
 
@@ -229,7 +238,6 @@ def train_ae(optimizer, criterion, autoencoder, ntokens, source, target, lengths
         flattened_output.masked_select(output_mask).view(-1, ntokens)
     loss = criterion(masked_output, masked_target)
     loss.backward()
-    autoencoder.embedding.zero_grad()
     optimizer.step()
     return loss, output
 
