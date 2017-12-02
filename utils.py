@@ -17,7 +17,6 @@ class Dictionary(object):
     def __init__(self):
         self.word2idx = {}
         self.idx2word = {}
-        self.lvt=True
         self.word2idx['<pad>'] = 0
         self.word2idx['<sos>'] = 1
         self.word2idx['<eos>'] = 2
@@ -28,8 +27,6 @@ class Dictionary(object):
     def add_word(self, word):
         if word not in self.wordcounts:
             self.wordcounts[word] = 1
-            if not self.lvt:
-                self.word2idx[word] = len(self.word2idx)
         else:
             self.wordcounts[word] += 1
 
@@ -79,24 +76,30 @@ class NewsDataset(data.Dataset):
         self.test_tgt_path = os.path.join(args.data.dir, 'newstest2014.de')
         self.lowercase = True
         if vocab is not None:
-            self.dictionary_src = vocab[0]
-            self.dictionary_tgt = vocab[1]
+            if type(vocab[0]) is dict:
+                self.dictionary_src = Dictionary()
+                self.dictionary_tgt = Dictionary()
+                self.dictionary_src.word2idx = vocab[0]
+                self.dictionary_tgt.word2idx = vocab[1]
+            else:
+                self.dictionary_src = vocab[0]
+                self.dictionary_tgt = vocab[1]
         else:
             self.dictionary_src = Dictionary()
             self.dictionary_tgt = Dictionary()
             
-        if src:
-            self.vocab_size = args.data.src_vocab_size
-        else:
-            self.vocab_size = args.data.tgt_vocab_size
+#         if src:
+#             self.vocab_size = args.data.src_vocab_size
+#         else:
+#             self.vocab_size = args.data.tgt_vocab_size
         self.args = args
         
         if self.train:
             if not unsup:
                 temp_s_b=[]
                 temp_s_l=[]
-                self.make_vocab(self.train_src_aligned_path, vocab[0])
-                self.make_vocab(self.train_tgt_aligned_path, vocab[1])
+#                 self.make_vocab(self.train_src_aligned_path, vocab[0])
+#                 self.make_vocab(self.train_tgt_aligned_path, vocab[1])
                 if train:
                     for root, _, files in os.walk(self.train_src_aligned_path):
                         for file_name in files:
@@ -113,7 +116,7 @@ class NewsDataset(data.Dataset):
                 if src:
                     temp_s_b=[]
                     temp_s_l=[]
-                    self.make_vocab(self.train_src_unaligned_path, self.dictionary_src)
+#                     self.make_vocab(self.train_src_unaligned_path, self.dictionary_src)
                     for root, _, files in os.walk(self.train_src_unaligned_path):
                         for file_name in files:
                             a,b = self.tokenize(root+"/"+file_name, self.dictionary_src)
@@ -124,7 +127,7 @@ class NewsDataset(data.Dataset):
                 else:
                     temp_t_b=[]
                     temp_t_l=[]        
-                    self.make_vocab(self.train_tgt_unaligned_path, self.dictionary_tgt)
+#                     self.make_vocab(self.train_tgt_unaligned_path, self.dictionary_tgt)
                     for root, _, files in os.walk(self.train_tgt_unaligned_path):
                         for file_name in files:
                             a,b = self.tokenize(root+"/"+file_name, self.dictionary_tgt)
@@ -137,11 +140,7 @@ class NewsDataset(data.Dataset):
             self.src_data, self.tgt_data = self.tokenize([self.test_src_path , self.test_tgt_path], vocab)
             
             assert(len(self.src_data) == len(self.tgt_data))
-            
-#             for s, t in zip(src_data, tgt_data):
-#                 self.src_data.append(s)
-#                 self.tgt_data.append(t)
-                    
+                              
             
     def __getitem__(self, index):
         if self.train:
@@ -183,9 +182,6 @@ class NewsDataset(data.Dataset):
                             #word = word.decode('Windows-1252').encode('utf-8')
                             corpus_dict.add_word(word)
 
-        # prune the vocabulary
-        corpus_dict.prune_vocab(k=self.vocab_size, cnt=False)
-        pkl.dump(corpus_dict.word2idx, open(self.args.data.dir+"/vocab.pkl", 'w'))
         
     def process_line(self, line):
         try:
@@ -222,24 +218,24 @@ class NewsDataset(data.Dataset):
             if type(path)==list:
                 words_s, words_t = self.process_line(line[0]), self.process_line(line[1])
             
-                if (len(words_s) > self.args.data.max_len-1) or (len(words_t) > self.args.data.max_len-1):
-                    dropped += 1
-                    continue
+                
                 words_s = ['<sos>'] + words_s
                 words_s += ['<eos>']
                 words_t = ['<sos>'] + words_t
                 words_t += ['<eos>']
                 
+                if (len(words_s) > self.args.data.max_len-1) or (len(words_t) > self.args.data.max_len-1):
+                    dropped += 1
+                    continue
                 word_indices_s = [vocab_s[w] if w in vocab_s else unk_idx_s for w in words_s]
                 word_indices_t = [vocab_t[w] if w in vocab_t else unk_idx_t for w in words_t]
                 lines.append([word_indices_s, word_indices_t])
             else:
                 words = self.process_line(line)
-                
                 words = ['<sos>'] + words
                 words += ['<eos>']
                 
-                if (len(words) > self.args.data.max_len):
+                if (len(words) > self.args.data.max_len-1):
                     dropped += 1
                     continue
                 # vectorize
@@ -254,9 +250,17 @@ class NewsDataset(data.Dataset):
             lengths_src = [len(x[0])-1 for x in lines]
             lengths_tgt = [len(x[1])-1 for x in lines]
             temp=zip(*lines)
-            batch, lengths = self.length_sort(zip(*((zip(*lines) + [lengths_tgt]))), lengths_src)
-            batch_src, batch_tgt, batch_tgt_len = zip(*batch)
-            return [batch_src, lengths] , [batch_tgt, batch_tgt_len]
+#             if self.source:
+            batch1, lengths1 = self.length_sort(zip(*((zip(*lines) + [lengths_tgt]))), lengths_src)
+            batch_src1, batch_tgt1, batch_tgt_len1 = zip(*batch1)
+#                 return [batch_src1, lengths1] , [batch_tgt1, batch_tgt_len1]
+#             else:
+            batch2, lengths2 = self.length_sort(zip(*((zip(*lines) + [lengths_src]))), lengths_tgt)
+            batch_src2, batch_tgt2, batch_src_len2 = zip(*batch2)
+#                 return [batch_tgt2, lengths2] , [batch_src2, batch_src_len2]
+            return [[batch_src1, batch_tgt2], [lengths1, lengths2]] , \
+                    [[batch_tgt1, batch_src2], [batch_tgt_len1, batch_src_len2]]
+            
         else:
             lengths = [len(x)-1 for x in lines]
             batch, lengths = self.length_sort(lines, lengths)
@@ -313,12 +317,12 @@ class DataLoaderIter(object):
 
     def __len__(self):
         return math.ceil(len(self.dataset.src_data[0])/float(self.batch_size))
-
+        
     def distort(self, sentence):
         """Permutes continguous pairs of words in sentence"""
         n = len(sentence)
         swap_indices = random.shuffle(range(n-1))[:n/2] # Only works in Python 2
-        for ind in swap_inds:
+        for ind in swap_indices:
             x, y = sentence[ind:ind+2]
             sentence[ind:ind+2] = y, x
      
@@ -341,9 +345,9 @@ class DataLoaderIter(object):
             
             src = src[:max_len]
             tgt = tgt[:max_len]
-
+            
             self.distort(src)
-
+            
             src_tensor.append(torch.LongTensor(src).unsqueeze(0))
             tgt_tensor.append(torch.LongTensor(tgt).unsqueeze(0))
             targets.extend(tgt)
@@ -352,10 +356,11 @@ class DataLoaderIter(object):
                         Variable(torch.cat(tgt_tensor, 0)), Variable(torch.LongTensor(lengths))
     
     def collate_aligned(self, batch_src, batch_tgt):
-        lengths_src = [len(x) for x in batch_src]
-        lengths_tgt = [len(x) for x in batch_tgt]
+        lengths_src = [len(x)-1 for x in batch_src]
+        lengths_tgt = [len(x)-1 for x in batch_tgt]
         max_len_src = min(np.max(lengths_src), self.dataset.args.data.max_len)
-        max_len_tgt = min(np.max(lengths_tgt), self.dataset.args.data.max_len)
+        #max_len_tgt = min(np.max(lengths_tgt), self.dataset.args.data.max_len)
+        max_len_tgt = self.dataset.args.data.max_len
         src_tensor = []
         tgt_tensor = []
         targets_flat = []
@@ -409,29 +414,29 @@ def to_gpu(gpu, var):
         return var.cuda()
     return var
 
-def load_embeddings(root = '/home/ddua/data/snli/snli_lm/'):
-    vocab_path=root+'vocab_41578.pkl'
-    file_path=root+'embeddings'
-    vocab = pkl.load(open(vocab_path))
-    
-    embeddings = torch.FloatTensor(len(vocab),100).uniform_(-0.1, 0.1)
-    embeddings[0].fill_(0)
-    embeddings[1].copy_(torch.FloatTensor(map(float,open(file_path).read().split('\n')[0].strip().split(" ")[1:])))
-    embeddings[2].copy_(embeddings[1])
-    
-    with open(file_path) as fr:
+def load_embeddings(path):
+    flag=True
+    vocab = {}
+    embeddings = torch.LongTensor(50003, 300)
+    embeddings[0].copy_(torch.FloatTensor(300).uniform_(-0.1, 0.1))
+    vocab['<pad>'] = 0
+    vocab['<s>'] = 1
+    vocab['</s>'] = 2
+    vocab['<unk>'] = 3
+    with open(path) as fr:
         for line in fr:
-            elements=line.strip().split(" ")
-            word = elements[0]
-            emb = torch.FloatTensor(map(float, elements[1:]))
-            if word in vocab:
-                embeddings[vocab[word]].copy_(emb)
+            if flag:
+                flag=False
+                continue
+            else:
+                tokens = line.strip().split(" ")
+                vocab_idx = len(vocab)
+                if tokens[0] in vocab:
+                    print(tokens[0])
+                    vocab_idx = vocab[tokens[0]]
+                else:
+                    vocab[tokens[0]]=len(vocab)
+                embeddings[vocab_idx].copy_(torch.FloatTensor(map(float,tokens[1:])))
             
-    return embeddings
-
-def to_gpu(gpu, var):
-    if gpu:
-        return var.cuda()
-    return var
-
+    return embeddings, vocab
     

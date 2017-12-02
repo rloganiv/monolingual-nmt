@@ -76,13 +76,14 @@ def decode_minibatch(
     model,
     input_lines_src,
     input_lines_trg,
-    lengths
+    lengths,
+    l1_decoder=False
 ):
     """Decode a minibatch."""
     for i in xrange(config['data']['max_len']):
 
-        decoder_logit = model(input_lines_src, input_lines_trg, lengths[0])
-        word_probs = model.decode(decoder_logit)
+        decoder_logit = model(input_lines_src, input_lines_trg, lengths,l1_decoder=l1_decoder)
+        word_probs = model.decode(decoder_logit, l1_decoder=l1_decoder)
         decoder_argmax = word_probs.data.cpu().numpy().argmax(axis=-1)
         next_preds = Variable(
             torch.from_numpy(decoder_argmax[:, -1])
@@ -140,15 +141,16 @@ def evaluate_alignment_model(model_l1_l2, model_l2_l1, test_data, config, metric
     """Evaluate model."""
     
     test_iter = iter(test_data)
-    
+    preds_l1 = []
+    ground_truths_l1 = []
+    preds_l2=[]
+    ground_truths_l2=[]
     count=0
     print ("-------Test recosntructions----------")
     for j in xrange(0, len(test_data), config['data']['batch_size']):
         
         ##################### L1 => L2 #############################
         source, target, src_flat, tgt_flat, lengths = test_iter.next()
-        preds = []
-        ground_truths = []
         input_lines_target = Variable(torch.LongTensor([1]*source.size(0)).unsqueeze(1))
         
         # Decode a minibatch greedily __TODO__ add beam search decoding
@@ -186,19 +188,18 @@ def evaluate_alignment_model(model_l1_l2, model_l2_l1, test_data, config, metric
                 index = sentence_pred.index('<eos>')
             else:
                 index = len(sentence_pred)
-            preds.append(['<sos>'] + sentence_pred[:index + 1])
+            preds_l1.append(['<sos>'] + sentence_pred[:index + 1])
 
             if '<eos>' in sentence_real:
                 index = sentence_real.index('<sos>')
             else:
                 index = len(sentence_real)
-            ground_truths.append(['<sos>'] + sentence_real[:index + 1])
+            ground_truths_l1.append(['<sos>'] + sentence_real[:index + 1])
         
-        blue_l1_l2 = get_bleu(preds, ground_truths)
+        
         
         ##################### L2 => L1 #############################
-        preds = []
-        ground_truths = []
+        
         input_lines_target = Variable(torch.LongTensor([1]*target.size(0)).unsqueeze(1))
         
         # Decode a minibatch greedily
@@ -230,16 +231,17 @@ def evaluate_alignment_model(model_l1_l2, model_l2_l1, test_data, config, metric
                 index = sentence_pred.index('<eos>')
             else:
                 index = len(sentence_pred)
-            preds.append(['<sos>'] + sentence_pred[:index + 1])
+            preds_l2.append(['<sos>'] + sentence_pred[:index + 1])
 
             if '<eos>' in sentence_real:
                 index = sentence_real.index('<sos>')
             else:
                 index = len(sentence_real)
-            ground_truths.append(['<sos>'] + sentence_real[:index + 1])
+            ground_truths_l2.append(['<sos>'] + sentence_real[:index + 1])
         
-        bleu_l2_l1 = get_bleu(preds, ground_truths)
-
+    bleu_l2_l1 = get_bleu(preds_l2, ground_truths_l2)
+    bleu_l1_l2 = get_bleu(preds_l1, ground_truths_l1)
+    
     return bleu_l1_l2, bleu_l2_l1
 
 def evaluate_autoencoder_model(model, test_data, config, metric='bleu'):
@@ -288,3 +290,111 @@ def evaluate_autoencoder_model(model, test_data, config, metric='bleu'):
             ground_truths.append(['<sos>'] + sentence_real[:index + 1])
 
     return get_bleu(preds, ground_truths)
+
+
+def evaluate_mono_nmt(model, test_data, config, metric='bleu'):
+    """Evaluate model."""
+    preds_l1 = []
+    ground_truths_l1 = []
+    preds_l2 = []
+    ground_truths_l2 = []
+    test_iter = iter(test_data)
+    count=0
+    for j in xrange(0, len(test_iter)):
+
+        ##################### L1 => L2 #############################
+        source, target, src_flat, tgt_flat, lengths = test_iter.next()
+        input_lines_target = Variable(torch.LongTensor([1]*source.size(0)).unsqueeze(1))
+        
+        # Decode a minibatch greedily __TODO__ add beam search decoding
+        input_lines_trg = decode_minibatch(
+            config, model, source,
+            input_lines_target, lengths[0],
+            l1_decoder=False
+        )
+
+        # Copy minibatch outputs to cpu and convert ids to words
+        input_lines_trg = input_lines_trg.data.cpu().numpy()
+        input_lines_trg = [
+            [test_data.dataset.dictionary_tgt.idx2word[x] for x in line]
+            for line in input_lines_trg
+        ]
+
+        # Do the same for gold sentences
+        output_lines_trg_gold = target.data.cpu().numpy()
+        output_lines_trg_gold = [
+            [test_data.dataset.dictionary_tgt.idx2word[x] for x in line]
+            for line in output_lines_trg_gold
+        ]
+
+        while count<10:
+            print('Predicted : %s ' % (' '.join(input_lines_trg[0])))
+            print('-----------------------------------------------')
+            print('Real : %s ' % (' '.join(output_lines_trg_gold[0])))
+            print('===============================================')
+            count+=1
+            
+        # Process outputs
+        for sentence_pred, sentence_real in zip(
+            input_lines_trg,
+            output_lines_trg_gold ):
+            if '<eos>' in sentence_pred:
+                index = sentence_pred.index('<eos>')
+            else:
+                index = len(sentence_pred)
+            preds_l1.append(['<sos>'] + sentence_pred[:index + 1])
+
+            if '<eos>' in sentence_real:
+                index = sentence_real.index('<eos>')
+            else:
+                index = len(sentence_real)
+            ground_truths_l1.append(['<sos>'] + sentence_real[:index + 1])
+        
+        
+        
+        ##################### L2 => L1 #############################
+        
+        input_lines_target = Variable(torch.LongTensor([1]*target.size(0)).unsqueeze(1))
+        
+        # Decode a minibatch greedily
+        input_lines_trg = decode_minibatch(
+            config, model, target,
+            input_lines_target, lengths[1],
+            l1_decoder=True
+        )
+
+    
+        # Copy minibatch outputs to cpu and convert ids to words
+        input_lines_trg = input_lines_trg.data.cpu().numpy()
+        input_lines_trg = [
+            [test_data.dataset.dictionary_tgt.idx2word[x] for x in line]
+            for line in input_lines_trg
+        ]
+
+        # Do the same for gold sentences
+        output_lines_src_gold = source.data.cpu().numpy()
+        output_lines_src_gold = [
+            [test_data.dataset.dictionary_tgt.idx2word[x] for x in line]
+            for line in output_lines_src_gold
+        ]
+
+        # Process outputs
+        for sentence_pred, sentence_real in zip(
+            input_lines_trg,
+            output_lines_src_gold ):
+            if '<eos>' in sentence_pred:
+                index = sentence_pred.index('<eos>')
+            else:
+                index = len(sentence_pred)
+            preds_l2.append(['<sos>'] + sentence_pred[:index + 1])
+
+            if '<eos>' in sentence_real:
+                index = sentence_real.index('<sos>')
+            else:
+                index = len(sentence_real)
+            ground_truths_l2.append(['<sos>'] + sentence_real[:index + 1])
+        
+    bleu_l2_l1 = get_bleu(preds_l2, ground_truths_l2)
+    bleu_l1_l2 = get_bleu(preds_l1, ground_truths_l1)
+    
+    return bleu_l1_l2, bleu_l2_l1
