@@ -16,7 +16,8 @@ class StackedAttentionGRU(nn.Module):
         rnn_size,
         num_layers,
         batch_first=True,
-        dropout=0.
+        dropout=0.,
+        maxlen=50
     ):
         """Initialize params."""
         super(StackedAttentionGRU, self).__init__()
@@ -28,13 +29,13 @@ class StackedAttentionGRU(nn.Module):
         self.layers = []
         for i in range(num_layers):
             layer = GRUAttentionDot(
-                input_size, rnn_size, batch_first=self.batch_first
+                input_size, rnn_size, batch_first=self.batch_first, maxlen=maxlen
             )
             self.add_module('layer_%d' % i, layer)
             self.layers += [layer]
             input_size = rnn_size
 
-    def forward(self, input, hidden, ctx, ctx_mask=None):
+    def forward(self, input, hidden, ctx, ctx_mask=None, use_maxlen=False):
         """Propogate input through the layer."""
         h_0 = hidden
         h_1 = []
@@ -43,7 +44,7 @@ class StackedAttentionGRU(nn.Module):
                 ctx_mask = torch.ByteTensor(
                     ctx_mask.data.cpu().numpy().astype(np.int32).tolist()
                 ).cuda()
-            output, h_1_i = layer(input, h_0, ctx, ctx_mask)
+            output, h_1_i = layer(input, h_0, ctx, ctx_mask, use_maxlen=use_maxlen)
 
             input = output
 
@@ -166,13 +167,14 @@ class SoftDotAttention(nn.Module):
 class GRUAttentionDot(nn.Module):
     r"""A long short-term memory (LSTM) cell with attention."""
 
-    def __init__(self, input_size, hidden_size, batch_first=True, dropout=0.3):
+    def __init__(self, input_size, hidden_size, batch_first=True, dropout=0.3,maxlen=50):
         """Initialize params."""
         super(GRUAttentionDot, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.num_layers = 1
         self.batch_first = batch_first
+        self.maxlen = maxlen
         self.dropout = dropout
         self.decoder_rnn = nn.GRU(input_size,
                                   hidden_size,
@@ -182,7 +184,7 @@ class GRUAttentionDot(nn.Module):
                                   dropout=self.dropout)
         self.attention_layer = SoftDotAttention(hidden_size)
 
-    def forward(self, input, hidden, ctx, ctx_mask=None):
+    def forward(self, input, hidden, ctx, ctx_mask=None, use_maxlen=False):
         """Propogate input through the network."""
         def recurrence(input, hidden):
             """Recurrence helper."""
@@ -195,7 +197,10 @@ class GRUAttentionDot(nn.Module):
             input = input.transpose(0, 1)
 
         output = []
-        steps = range(input.size(0))
+        if use_maxlen:
+            steps = range(self.maxlen)
+        else:
+            steps = range(input.size(0))
         for i in steps:
             hidden = recurrence(input[i].unsqueeze(1), hidden.unsqueeze(0))
             output.append(hidden)
@@ -222,7 +227,6 @@ class Seq2SeqAttention(nn.Module):
         ctx_hidden_dim,
         attention_mode,
         batch_size,
-        fixed_embeddings=False,
         bidirectional=True,
         nlayers=2,
         nlayers_trg=2,
@@ -253,12 +257,6 @@ class Seq2SeqAttention(nn.Module):
             trg_vocab_size,
             trg_emb_dim
         )
-        
-        if fixed_embeddings:
-            for p in self.src_embedding.parameters():
-                p.requires_grad = False
-            for p in self.trg_embedding.parameters():
-                p.requires_grad = False
 
         self.src_hidden_dim = src_hidden_dim // 2 \
             if self.bidirectional else src_hidden_dim
@@ -310,7 +308,7 @@ class Seq2SeqAttention(nn.Module):
     def forward(self, input_src, input_trg, lengths=None, trg_mask=None, ctx_mask=None, gpu=False):
         """Propogate input through the network."""
         src_emb = self.src_embedding(input_src)
-        trg_emb = self.trg_embedding(input_src)
+        trg_emb = self.trg_embedding(input_trg)
 
         self.h0_encoder = self.get_state(input_src)
 
@@ -504,4 +502,208 @@ class Seq2SeqAttentionSharedEmbedding(nn.Module):
         )
         return word_probs
 
+class Seq2SeqMono(nn.Module):
+    """Container module with an encoder, deocder, embeddings."""
+
+    def __init__(
+        self,
+        src_emb_dim,
+        trg_emb_dim,
+        src_vocab_size,
+        trg_vocab_size_l1,
+        trg_vocab_size_l2,
+        src_hidden_dim,
+        trg_hidden_dim,
+        ctx_hidden_dim,
+        attention_mode,
+        batch_size,
+        bidirectional=True,
+        nlayers=2,
+        nlayers_trg=2,
+        dropout=0.,
+        maxlen=50,
+        gpu=False
+    ):
+        """Initialize model."""
+        super(Seq2SeqMono, self).__init__()
+        self.src_vocab_size = src_vocab_size
+        self.trg_vocab_size_l1 = trg_vocab_size_l1
+        self.trg_vocab_size_l2 = trg_vocab_size_l2
+        self.src_emb_dim = src_emb_dim
+        self.trg_emb_dim = trg_emb_dim
+        self.src_hidden_dim = src_hidden_dim
+        self.trg_hidden_dim = trg_hidden_dim
+        self.ctx_hidden_dim = ctx_hidden_dim
+        self.attention_mode = attention_mode
+        self.batch_size = batch_size
+        self.bidirectional = bidirectional
+        self.nlayers = nlayers
+        self.dropout = dropout
+        self.num_directions = 2 if bidirectional else 1
+
+        self.src_embedding = nn.Embedding(
+            src_vocab_size,
+            src_emb_dim
+        )
+        self.trg_embedding_l1 = nn.Embedding(
+            trg_vocab_size_l1,
+            trg_emb_dim
+        )
+        self.trg_embedding_l2 = nn.Embedding(
+            trg_vocab_size_l2,
+            trg_emb_dim
+        )
+
+        self.src_hidden_dim = src_hidden_dim // 2 \
+            if self.bidirectional else src_hidden_dim
+        self.encoder = nn.GRU(
+            src_emb_dim,
+            self.src_hidden_dim,
+            nlayers,
+            bidirectional=bidirectional,
+            batch_first=True,
+            dropout=self.dropout
+        )
+
+        self.decoder_l1 = StackedAttentionGRU(
+            trg_emb_dim,
+            trg_hidden_dim,
+            nlayers,
+            batch_first=True,
+            maxlen=maxlen
+        )
+        
+        self.decoder_l2 = StackedAttentionGRU(
+            trg_emb_dim,
+            trg_hidden_dim,
+            nlayers,
+            batch_first=True,
+            maxlen=maxlen
+        )
+
+        self.encoder2decoder1 = nn.Linear(
+            self.src_hidden_dim * self.num_directions,
+            trg_hidden_dim
+        )
+        
+        self.encoder2decoder2 = nn.Linear(
+            self.src_hidden_dim * self.num_directions,
+            trg_hidden_dim
+        )
+        
+        self.decoder2vocab_l1 = nn.Linear(trg_hidden_dim, trg_vocab_size_l1)
+        self.decoder2vocab_l2 = nn.Linear(trg_hidden_dim, trg_vocab_size_l2)
+        self.gpu = gpu
+        self.init_weights()
+
+    def init_weights(self):
+        """Initialize weights."""
+        initrange = 0.1
+        self.src_embedding.weight.data.uniform_(-initrange, initrange)
+        self.trg_embedding_l1.weight.data.uniform_(-initrange, initrange)
+        self.trg_embedding_l2.weight.data.uniform_(-initrange, initrange)
+        self.encoder2decoder1.bias.data.fill_(0)
+        self.encoder2decoder2.bias.data.fill_(0)
+        self.decoder2vocab_l1.bias.data.fill_(0)
+        self.decoder2vocab_l2.bias.data.fill_(0)
+
+    def get_state(self, input):
+        """Get cell states and hidden states."""
+        batch_size = input.size(0) \
+            if self.encoder.batch_first else input.size(1)
+        h0_encoder = Variable(torch.zeros(
+            self.encoder.num_layers * self.num_directions,
+            batch_size,
+            self.src_hidden_dim
+        ), requires_grad=False)
+        if self.gpu:
+            h0_encoder = h0_encoder.cuda()
+        return h0_encoder
+
+    def forward(self, input_src, input_trg, lengths=None, \
+                trg_mask=None, ctx_mask=None, gpu=False, \
+                l1_decoder=True, use_maxlen=False, unsup=False):
+        """Propogate input through the network."""
+        src_emb = self.src_embedding(input_src)
+        if l1_decoder:
+            if unsup:
+                trg_emb = self.trg_embedding_l1(input_src)
+            else:
+                trg_emb = self.trg_embedding_l1(input_trg)
+        else:
+            if unsup:
+                trg_emb = self.trg_embedding_l2(input_src)
+            else:
+                trg_emb = self.trg_embedding_l2(input_trg)
+
+        self.h0_encoder = self.get_state(input_src)
+
+        lengths = lengths.view(-1).data.tolist()
+        
+        packed_emb = pack_padded_sequence(src_emb, lengths,batch_first=True)
+            
+        src_h, src_h_t = self.encoder(packed_emb, self.h0_encoder)
+        
+        src_h = pad_packed_sequence(src_h)[0]
+            
+        if self.bidirectional:
+            h_t = torch.cat((src_h_t[-1], src_h_t[-2]), 1)
+        else:
+            h_t = src_h_t[-1]
+        
+        if l1_decoder:
+            decoder_init_state = nn.Tanh()(self.encoder2decoder1(h_t))
+            ctx = src_h
+            trg_h, _ = self.decoder_l1(
+                trg_emb,
+                decoder_init_state,
+                ctx,
+                ctx_mask,
+                use_maxlen=use_maxlen
+            )
+    
+            trg_h_reshape = trg_h.contiguous().view(
+                trg_h.size()[0] * trg_h.size()[1],
+                trg_h.size()[2]
+            )
+            decoder_logit = self.decoder2vocab_l1(trg_h_reshape)
+            decoder_logit = decoder_logit.view(
+                trg_h.size()[0],
+                trg_h.size()[1],
+                decoder_logit.size()[1]
+            )
+        else:
+            decoder_init_state = nn.Tanh()(self.encoder2decoder2(h_t))
+            ctx = src_h
+            trg_h, _ = self.decoder_l2(
+                trg_emb,
+                decoder_init_state,
+                ctx,
+                ctx_mask,
+                use_maxlen=use_maxlen
+            )
+    
+            trg_h_reshape = trg_h.contiguous().view(
+                trg_h.size()[0] * trg_h.size()[1],
+                trg_h.size()[2]
+            )
+            decoder_logit = self.decoder2vocab_l2(trg_h_reshape)
+            decoder_logit = decoder_logit.view(
+                trg_h.size()[0],
+                trg_h.size()[1],
+                decoder_logit.size()[1]
+            )
+        return decoder_logit
+
+    def decode(self, logits, l1_decoder=False):
+        """Return probability distribution over words."""
+        if l1_decoder:
+            logits_reshape = logits.view(-1, self.trg_vocab_size_l1)
+        else:
+            logits_reshape = logits.view(-1, self.trg_vocab_size_l2)
+        word_probs = F.softmax(logits)
+        word_probs = word_probs.view(
+            logits.size()[0], logits.size()[1], logits.size()[2]
+        )
+        return word_probs
 
