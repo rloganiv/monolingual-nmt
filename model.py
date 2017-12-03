@@ -1,4 +1,5 @@
 """Sequence to Sequence models."""
+
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
@@ -6,6 +7,7 @@ import math
 import torch.nn.functional as F
 import numpy as np
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+
 
 class StackedAttentionGRU(nn.Module):
     """Deep Attention GRU."""
@@ -251,13 +253,10 @@ class Seq2SeqAttention(nn.Module):
 
         self.src_embedding = nn.Embedding(
             src_vocab_size,
-            src_emb_dim
-        )
+            src_emb_dim)
         self.tgt_embedding = nn.Embedding(
             tgt_vocab_size,
-            tgt_emb_dim
-        )
-
+            tgt_emb_dim)
         self.src_hidden_dim = src_hidden_dim // 2 \
             if self.bidirectional else src_hidden_dim
         self.encoder = nn.GRU(
@@ -266,20 +265,15 @@ class Seq2SeqAttention(nn.Module):
             nlayers,
             bidirectional=bidirectional,
             batch_first=True,
-            dropout=self.dropout
-        )
-
+            dropout=self.dropout)
         self.decoder = StackedAttentionGRU(
             tgt_emb_dim,
             tgt_hidden_dim,
             nlayers,
-            batch_first=True
-        )
-
+            batch_first=True)
         self.encoder2decoder = nn.Linear(
             self.src_hidden_dim * self.num_directions,
-            tgt_hidden_dim
-        )
+            tgt_hidden_dim)
         self.decoder2vocab = nn.Linear(tgt_hidden_dim, tgt_vocab_size)
         self.gpu = gpu
         self.init_weights()
@@ -313,18 +307,18 @@ class Seq2SeqAttention(nn.Module):
         self.h0_encoder = self.get_state(input_src)
 
         lengths = lengths.view(-1).data.tolist()
-        
+
         packed_emb = pack_padded_sequence(src_emb, lengths,batch_first=True)
-            
+
         src_h, src_h_t = self.encoder(packed_emb, self.h0_encoder)
-        
+
         src_h = pad_packed_sequence(src_h)[0]
-            
+
         if self.bidirectional:
             h_t = torch.cat((src_h_t[-1], src_h_t[-2]), 1)
         else:
             h_t = src_h_t[-1]
-            
+
         decoder_init_state = nn.Tanh()(self.encoder2decoder(h_t))
 
         ctx = src_h
@@ -503,7 +497,7 @@ class Seq2SeqAttentionSharedEmbedding(nn.Module):
         return word_probs
 
 class Seq2SeqMono(nn.Module):
-    """Container module with an encoder, deocder, embeddings."""
+    """Container module with an encoder, decoder and embeddings."""
 
     def __init__(
         self,
@@ -517,6 +511,7 @@ class Seq2SeqMono(nn.Module):
         ctx_hidden_dim,
         attention_mode,
         batch_size,
+        fixed_embeddings=False,
         bidirectional=True,
         nlayers=2,
         nlayers_tgt=2,
@@ -536,61 +531,57 @@ class Seq2SeqMono(nn.Module):
         self.ctx_hidden_dim = ctx_hidden_dim
         self.attention_mode = attention_mode
         self.batch_size = batch_size
+        self.fixed_embeddings = fixed_embeddings
         self.bidirectional = bidirectional
         self.nlayers = nlayers
         self.dropout = dropout
         self.num_directions = 2 if bidirectional else 1
+        if self.bidirectional:
+            self.src_hidden_dim = src_hidden_dim // 2
+        else:
+            self.src_hidden_dim= src_hidden_dim
 
         self.src_embedding = nn.Embedding(
             src_vocab_size,
-            src_emb_dim
-        )
+            src_emb_dim)
         self.tgt_embedding_l1 = nn.Embedding(
             tgt_vocab_size_l1,
-            tgt_emb_dim
-        )
+            tgt_emb_dim)
         self.tgt_embedding_l2 = nn.Embedding(
             tgt_vocab_size_l2,
-            tgt_emb_dim
-        )
+            tgt_emb_dim)
 
-        self.src_hidden_dim = src_hidden_dim // 2 \
-            if self.bidirectional else src_hidden_dim
+        if fixed_embeddings:
+            list(self.src_embedding.parameters())[0].requires_grad = False
+            list(self.tgt_embedding_l1.parameters())[0].requires_grad = False
+            list(self.tgt_embedding_l2.parameters())[0].requires_grad = False
+
         self.encoder = nn.GRU(
             src_emb_dim,
             self.src_hidden_dim,
             nlayers,
             bidirectional=bidirectional,
             batch_first=True,
-            dropout=self.dropout
-        )
-
+            dropout=self.dropout)
         self.decoder_l1 = StackedAttentionGRU(
             tgt_emb_dim,
             tgt_hidden_dim,
             nlayers,
             batch_first=True,
-            maxlen=maxlen
-        )
-        
+            maxlen=maxlen)
         self.decoder_l2 = StackedAttentionGRU(
             tgt_emb_dim,
             tgt_hidden_dim,
             nlayers,
             batch_first=True,
-            maxlen=maxlen
-        )
-
+            maxlen=maxlen)
         self.encoder2decoder1 = nn.Linear(
             self.src_hidden_dim * self.num_directions,
-            tgt_hidden_dim
-        )
-        
+            tgt_hidden_dim)
         self.encoder2decoder2 = nn.Linear(
             self.src_hidden_dim * self.num_directions,
-            tgt_hidden_dim
-        )
-        
+            tgt_hidden_dim)
+
         self.decoder2vocab_l1 = nn.Linear(tgt_hidden_dim, tgt_vocab_size_l1)
         self.decoder2vocab_l2 = nn.Linear(tgt_hidden_dim, tgt_vocab_size_l2)
         self.gpu = gpu
@@ -624,7 +615,11 @@ class Seq2SeqMono(nn.Module):
                 tgt_mask=None, ctx_mask=None, gpu=False, \
                 l1_decoder=True, use_maxlen=False, unsup=False):
         """Propogate input through the network."""
+
+
+        # embed
         src_emb = self.src_embedding(input_src)
+
         if l1_decoder:
             if unsup:
                 tgt_emb = self.tgt_embedding_l1(input_src)
@@ -639,18 +634,14 @@ class Seq2SeqMono(nn.Module):
         self.h0_encoder = self.get_state(input_src)
 
         lengths = lengths.view(-1).data.tolist()
-        
-        packed_emb = pack_padded_sequence(src_emb, lengths,batch_first=True)
-            
+        packed_emb = pack_padded_sequence(src_emb, lengths, batch_first=True)
         src_h, src_h_t = self.encoder(packed_emb, self.h0_encoder)
-        
         src_h = pad_packed_sequence(src_h)[0]
-            
+
         if self.bidirectional:
             h_t = torch.cat((src_h_t[-1], src_h_t[-2]), 1)
         else:
             h_t = src_h_t[-1]
-        
         if l1_decoder:
             decoder_init_state = nn.Tanh()(self.encoder2decoder1(h_t))
             ctx = src_h
@@ -661,7 +652,6 @@ class Seq2SeqMono(nn.Module):
                 ctx_mask,
                 use_maxlen=use_maxlen
             )
-    
             tgt_h_reshape = tgt_h.contiguous().view(
                 tgt_h.size()[0] * tgt_h.size()[1],
                 tgt_h.size()[2]
@@ -682,7 +672,6 @@ class Seq2SeqMono(nn.Module):
                 ctx_mask,
                 use_maxlen=use_maxlen
             )
-    
             tgt_h_reshape = tgt_h.contiguous().view(
                 tgt_h.size()[0] * tgt_h.size()[1],
                 tgt_h.size()[2]

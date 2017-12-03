@@ -10,21 +10,6 @@ import operator
 import json
 
 
-def hyperparam_string(config):
-    """Hyerparam string."""
-    exp_name = ''
-    exp_name += 'model_%s__' % (config['data']['task'])
-    exp_name += 'src_%s__' % (config['model']['src_lang'])
-    exp_name += 'tgt_%s__' % (config['model']['tgt_lang'])
-    exp_name += 'attention_%s__' % (config['model']['seq2seq'])
-    exp_name += 'dim_%s__' % (config['model']['dim'])
-    exp_name += 'emb_dim_%s__' % (config['model']['dim_word_src'])
-    exp_name += 'optimizer_%s__' % (config['training']['optimizer'])
-    exp_name += 'n_layers_src_%d__' % (config['model']['n_layers_src'])
-    exp_name += 'n_layers_tgt_%d__' % (1)
-    exp_name += 'bidir_%s' % (config['model']['bidirectional'])
-
-    return exp_name
 
 
 def read_config(file_path):

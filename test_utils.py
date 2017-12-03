@@ -1,11 +1,9 @@
-from utils import load_embeddings, pad_and_collate, MonolingualDataset, MonolingualRandomSampler
-from torch.utils.data import DataLoader
+from utils import load_embeddings, pad_and_collate, MonolingualDataset, MonolingualDataLoader
 
 embeddings, vocab = load_embeddings('test_embeddings.txt')
 dataset = MonolingualDataset(folder='test', vocab=vocab, train=True)
-dataloader = DataLoader(dataset, batch_size=2, collate_fn=pad_and_collate,
-                        sampler=MonolingualRandomSampler(dataset))
+dataloader = iter(MonolingualDataLoader(dataset, batch_size=2, shuffle=True))
 
-for i, batch in enumerate(dataloader):
-    print i, batch
+for i in range(len(dataloader)):
+    print next(dataloader)
 
