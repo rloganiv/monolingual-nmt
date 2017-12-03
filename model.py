@@ -219,28 +219,28 @@ class Seq2SeqAttention(nn.Module):
     def __init__(
         self,
         src_emb_dim,
-        trg_emb_dim,
+        tgt_emb_dim,
         src_vocab_size,
-        trg_vocab_size,
+        tgt_vocab_size,
         src_hidden_dim,
-        trg_hidden_dim,
+        tgt_hidden_dim,
         ctx_hidden_dim,
         attention_mode,
         batch_size,
         bidirectional=True,
         nlayers=2,
-        nlayers_trg=2,
+        nlayers_tgt=2,
         dropout=0.,
         gpu=False
     ):
         """Initialize model."""
         super(Seq2SeqAttention, self).__init__()
         self.src_vocab_size = src_vocab_size
-        self.trg_vocab_size = trg_vocab_size
+        self.tgt_vocab_size = tgt_vocab_size
         self.src_emb_dim = src_emb_dim
-        self.trg_emb_dim = trg_emb_dim
+        self.tgt_emb_dim = tgt_emb_dim
         self.src_hidden_dim = src_hidden_dim
-        self.trg_hidden_dim = trg_hidden_dim
+        self.tgt_hidden_dim = tgt_hidden_dim
         self.ctx_hidden_dim = ctx_hidden_dim
         self.attention_mode = attention_mode
         self.batch_size = batch_size
@@ -253,9 +253,9 @@ class Seq2SeqAttention(nn.Module):
             src_vocab_size,
             src_emb_dim
         )
-        self.trg_embedding = nn.Embedding(
-            trg_vocab_size,
-            trg_emb_dim
+        self.tgt_embedding = nn.Embedding(
+            tgt_vocab_size,
+            tgt_emb_dim
         )
 
         self.src_hidden_dim = src_hidden_dim // 2 \
@@ -270,17 +270,17 @@ class Seq2SeqAttention(nn.Module):
         )
 
         self.decoder = StackedAttentionGRU(
-            trg_emb_dim,
-            trg_hidden_dim,
+            tgt_emb_dim,
+            tgt_hidden_dim,
             nlayers,
             batch_first=True
         )
 
         self.encoder2decoder = nn.Linear(
             self.src_hidden_dim * self.num_directions,
-            trg_hidden_dim
+            tgt_hidden_dim
         )
-        self.decoder2vocab = nn.Linear(trg_hidden_dim, trg_vocab_size)
+        self.decoder2vocab = nn.Linear(tgt_hidden_dim, tgt_vocab_size)
         self.gpu = gpu
         self.init_weights()
 
@@ -288,7 +288,7 @@ class Seq2SeqAttention(nn.Module):
         """Initialize weights."""
         initrange = 0.1
         self.src_embedding.weight.data.uniform_(-initrange, initrange)
-        self.trg_embedding.weight.data.uniform_(-initrange, initrange)
+        self.tgt_embedding.weight.data.uniform_(-initrange, initrange)
         self.encoder2decoder.bias.data.fill_(0)
         self.decoder2vocab.bias.data.fill_(0)
 
@@ -305,10 +305,10 @@ class Seq2SeqAttention(nn.Module):
             h0_encoder = h0_encoder.cuda()
         return h0_encoder
 
-    def forward(self, input_src, input_trg, lengths=None, trg_mask=None, ctx_mask=None, gpu=False):
+    def forward(self, input_src, input_tgt, lengths=None, tgt_mask=None, ctx_mask=None, gpu=False):
         """Propogate input through the network."""
         src_emb = self.src_embedding(input_src)
-        trg_emb = self.trg_embedding(input_trg)
+        tgt_emb = self.tgt_embedding(input_tgt)
 
         self.h0_encoder = self.get_state(input_src)
 
@@ -329,28 +329,28 @@ class Seq2SeqAttention(nn.Module):
 
         ctx = src_h
 
-        trg_h, _ = self.decoder(
-            trg_emb,
+        tgt_h, _ = self.decoder(
+            tgt_emb,
             decoder_init_state,
             ctx,
             ctx_mask
         )
 
-        trg_h_reshape = trg_h.contiguous().view(
-            trg_h.size()[0] * trg_h.size()[1],
-            trg_h.size()[2]
+        tgt_h_reshape = tgt_h.contiguous().view(
+            tgt_h.size()[0] * tgt_h.size()[1],
+            tgt_h.size()[2]
         )
-        decoder_logit = self.decoder2vocab(trg_h_reshape)
+        decoder_logit = self.decoder2vocab(tgt_h_reshape)
         decoder_logit = decoder_logit.view(
-            trg_h.size()[0],
-            trg_h.size()[1],
+            tgt_h.size()[0],
+            tgt_h.size()[1],
             decoder_logit.size()[1]
         )
         return decoder_logit
 
     def decode(self, logits):
         """Return probability distribution over words."""
-        logits_reshape = logits.view(-1, self.trg_vocab_size)
+        logits_reshape = logits.view(-1, self.tgt_vocab_size)
         word_probs = F.softmax(logits_reshape)
         word_probs = word_probs.view(
             logits.size()[0], logits.size()[1], logits.size()[2]
@@ -366,15 +366,15 @@ class Seq2SeqAttentionSharedEmbedding(nn.Module):
         emb_dim,
         vocab_size,
         src_hidden_dim,
-        trg_hidden_dim,
+        tgt_hidden_dim,
         ctx_hidden_dim,
         attention_mode,
         batch_size,
         pad_token_src,
-        pad_token_trg,
+        pad_token_tgt,
         bidirectional=True,
         nlayers=2,
-        nlayers_trg=2,
+        nlayers_tgt=2,
         dropout=0.,
     ):
         """Initialize model."""
@@ -382,7 +382,7 @@ class Seq2SeqAttentionSharedEmbedding(nn.Module):
         self.vocab_size = vocab_size
         self.emb_dim = emb_dim
         self.src_hidden_dim = src_hidden_dim
-        self.trg_hidden_dim = trg_hidden_dim
+        self.tgt_hidden_dim = tgt_hidden_dim
         self.ctx_hidden_dim = ctx_hidden_dim
         self.attention_mode = attention_mode
         self.batch_size = batch_size
@@ -391,7 +391,7 @@ class Seq2SeqAttentionSharedEmbedding(nn.Module):
         self.dropout = dropout
         self.num_directions = 2 if bidirectional else 1
         self.pad_token_src = pad_token_src
-        self.pad_token_trg = pad_token_trg
+        self.pad_token_tgt = pad_token_tgt
 
         self.embedding = nn.Embedding(
             vocab_size,
@@ -413,15 +413,15 @@ class Seq2SeqAttentionSharedEmbedding(nn.Module):
 
         self.decoder = LSTMAttentionDot(
             emb_dim,
-            trg_hidden_dim,
+            tgt_hidden_dim,
             batch_first=True
         )
 
         self.encoder2decoder = nn.Linear(
             self.src_hidden_dim * self.num_directions,
-            trg_hidden_dim
+            tgt_hidden_dim
         )
-        self.decoder2vocab = nn.Linear(trg_hidden_dim, vocab_size)
+        self.decoder2vocab = nn.Linear(tgt_hidden_dim, vocab_size)
 
         self.init_weights()
 
@@ -451,10 +451,10 @@ class Seq2SeqAttentionSharedEmbedding(nn.Module):
 
         return h0_encoder.cuda(), c0_encoder.cuda()
 
-    def forward(self, input_src, input_trg, trg_mask=None, ctx_mask=None):
+    def forward(self, input_src, input_tgt, tgt_mask=None, ctx_mask=None):
         """Propogate input through the network."""
         src_emb = self.embedding(input_src)
-        trg_emb = self.embedding(input_trg)
+        tgt_emb = self.embedding(input_tgt)
 
         self.h0_encoder, self.c0_encoder = self.get_state(input_src)
 
@@ -473,22 +473,22 @@ class Seq2SeqAttentionSharedEmbedding(nn.Module):
 
         ctx = src_h.transpose(0, 1)
 
-        trg_h, (_, _) = self.decoder(
-            trg_emb,
+        tgt_h, (_, _) = self.decoder(
+            tgt_emb,
             (decoder_init_state, c_t),
             ctx,
             ctx_mask
         )
 
-        trg_h_reshape = trg_h.contiguous().view(
-            trg_h.size()[0] * trg_h.size()[1],
-            trg_h.size()[2]
+        tgt_h_reshape = tgt_h.contiguous().view(
+            tgt_h.size()[0] * tgt_h.size()[1],
+            tgt_h.size()[2]
         )
 
-        decoder_logit = self.decoder2vocab(trg_h_reshape)
+        decoder_logit = self.decoder2vocab(tgt_h_reshape)
         decoder_logit = decoder_logit.view(
-            trg_h.size()[0],
-            trg_h.size()[1],
+            tgt_h.size()[0],
+            tgt_h.size()[1],
             decoder_logit.size()[1]
         )
         return decoder_logit
@@ -508,18 +508,18 @@ class Seq2SeqMono(nn.Module):
     def __init__(
         self,
         src_emb_dim,
-        trg_emb_dim,
+        tgt_emb_dim,
         src_vocab_size,
-        trg_vocab_size_l1,
-        trg_vocab_size_l2,
+        tgt_vocab_size_l1,
+        tgt_vocab_size_l2,
         src_hidden_dim,
-        trg_hidden_dim,
+        tgt_hidden_dim,
         ctx_hidden_dim,
         attention_mode,
         batch_size,
         bidirectional=True,
         nlayers=2,
-        nlayers_trg=2,
+        nlayers_tgt=2,
         dropout=0.,
         maxlen=50,
         gpu=False
@@ -527,12 +527,12 @@ class Seq2SeqMono(nn.Module):
         """Initialize model."""
         super(Seq2SeqMono, self).__init__()
         self.src_vocab_size = src_vocab_size
-        self.trg_vocab_size_l1 = trg_vocab_size_l1
-        self.trg_vocab_size_l2 = trg_vocab_size_l2
+        self.tgt_vocab_size_l1 = tgt_vocab_size_l1
+        self.tgt_vocab_size_l2 = tgt_vocab_size_l2
         self.src_emb_dim = src_emb_dim
-        self.trg_emb_dim = trg_emb_dim
+        self.tgt_emb_dim = tgt_emb_dim
         self.src_hidden_dim = src_hidden_dim
-        self.trg_hidden_dim = trg_hidden_dim
+        self.tgt_hidden_dim = tgt_hidden_dim
         self.ctx_hidden_dim = ctx_hidden_dim
         self.attention_mode = attention_mode
         self.batch_size = batch_size
@@ -545,13 +545,13 @@ class Seq2SeqMono(nn.Module):
             src_vocab_size,
             src_emb_dim
         )
-        self.trg_embedding_l1 = nn.Embedding(
-            trg_vocab_size_l1,
-            trg_emb_dim
+        self.tgt_embedding_l1 = nn.Embedding(
+            tgt_vocab_size_l1,
+            tgt_emb_dim
         )
-        self.trg_embedding_l2 = nn.Embedding(
-            trg_vocab_size_l2,
-            trg_emb_dim
+        self.tgt_embedding_l2 = nn.Embedding(
+            tgt_vocab_size_l2,
+            tgt_emb_dim
         )
 
         self.src_hidden_dim = src_hidden_dim // 2 \
@@ -566,16 +566,16 @@ class Seq2SeqMono(nn.Module):
         )
 
         self.decoder_l1 = StackedAttentionGRU(
-            trg_emb_dim,
-            trg_hidden_dim,
+            tgt_emb_dim,
+            tgt_hidden_dim,
             nlayers,
             batch_first=True,
             maxlen=maxlen
         )
         
         self.decoder_l2 = StackedAttentionGRU(
-            trg_emb_dim,
-            trg_hidden_dim,
+            tgt_emb_dim,
+            tgt_hidden_dim,
             nlayers,
             batch_first=True,
             maxlen=maxlen
@@ -583,16 +583,16 @@ class Seq2SeqMono(nn.Module):
 
         self.encoder2decoder1 = nn.Linear(
             self.src_hidden_dim * self.num_directions,
-            trg_hidden_dim
+            tgt_hidden_dim
         )
         
         self.encoder2decoder2 = nn.Linear(
             self.src_hidden_dim * self.num_directions,
-            trg_hidden_dim
+            tgt_hidden_dim
         )
         
-        self.decoder2vocab_l1 = nn.Linear(trg_hidden_dim, trg_vocab_size_l1)
-        self.decoder2vocab_l2 = nn.Linear(trg_hidden_dim, trg_vocab_size_l2)
+        self.decoder2vocab_l1 = nn.Linear(tgt_hidden_dim, tgt_vocab_size_l1)
+        self.decoder2vocab_l2 = nn.Linear(tgt_hidden_dim, tgt_vocab_size_l2)
         self.gpu = gpu
         self.init_weights()
 
@@ -600,8 +600,8 @@ class Seq2SeqMono(nn.Module):
         """Initialize weights."""
         initrange = 0.1
         self.src_embedding.weight.data.uniform_(-initrange, initrange)
-        self.trg_embedding_l1.weight.data.uniform_(-initrange, initrange)
-        self.trg_embedding_l2.weight.data.uniform_(-initrange, initrange)
+        self.tgt_embedding_l1.weight.data.uniform_(-initrange, initrange)
+        self.tgt_embedding_l2.weight.data.uniform_(-initrange, initrange)
         self.encoder2decoder1.bias.data.fill_(0)
         self.encoder2decoder2.bias.data.fill_(0)
         self.decoder2vocab_l1.bias.data.fill_(0)
@@ -620,21 +620,21 @@ class Seq2SeqMono(nn.Module):
             h0_encoder = h0_encoder.cuda()
         return h0_encoder
 
-    def forward(self, input_src, input_trg, lengths=None, \
-                trg_mask=None, ctx_mask=None, gpu=False, \
+    def forward(self, input_src, input_tgt, lengths=None, \
+                tgt_mask=None, ctx_mask=None, gpu=False, \
                 l1_decoder=True, use_maxlen=False, unsup=False):
         """Propogate input through the network."""
         src_emb = self.src_embedding(input_src)
         if l1_decoder:
             if unsup:
-                trg_emb = self.trg_embedding_l1(input_src)
+                tgt_emb = self.tgt_embedding_l1(input_src)
             else:
-                trg_emb = self.trg_embedding_l1(input_trg)
+                tgt_emb = self.tgt_embedding_l1(input_tgt)
         else:
             if unsup:
-                trg_emb = self.trg_embedding_l2(input_src)
+                tgt_emb = self.tgt_embedding_l2(input_src)
             else:
-                trg_emb = self.trg_embedding_l2(input_trg)
+                tgt_emb = self.tgt_embedding_l2(input_tgt)
 
         self.h0_encoder = self.get_state(input_src)
 
@@ -654,43 +654,43 @@ class Seq2SeqMono(nn.Module):
         if l1_decoder:
             decoder_init_state = nn.Tanh()(self.encoder2decoder1(h_t))
             ctx = src_h
-            trg_h, _ = self.decoder_l1(
-                trg_emb,
+            tgt_h, _ = self.decoder_l1(
+                tgt_emb,
                 decoder_init_state,
                 ctx,
                 ctx_mask,
                 use_maxlen=use_maxlen
             )
     
-            trg_h_reshape = trg_h.contiguous().view(
-                trg_h.size()[0] * trg_h.size()[1],
-                trg_h.size()[2]
+            tgt_h_reshape = tgt_h.contiguous().view(
+                tgt_h.size()[0] * tgt_h.size()[1],
+                tgt_h.size()[2]
             )
-            decoder_logit = self.decoder2vocab_l1(trg_h_reshape)
+            decoder_logit = self.decoder2vocab_l1(tgt_h_reshape)
             decoder_logit = decoder_logit.view(
-                trg_h.size()[0],
-                trg_h.size()[1],
+                tgt_h.size()[0],
+                tgt_h.size()[1],
                 decoder_logit.size()[1]
             )
         else:
             decoder_init_state = nn.Tanh()(self.encoder2decoder2(h_t))
             ctx = src_h
-            trg_h, _ = self.decoder_l2(
-                trg_emb,
+            tgt_h, _ = self.decoder_l2(
+                tgt_emb,
                 decoder_init_state,
                 ctx,
                 ctx_mask,
                 use_maxlen=use_maxlen
             )
     
-            trg_h_reshape = trg_h.contiguous().view(
-                trg_h.size()[0] * trg_h.size()[1],
-                trg_h.size()[2]
+            tgt_h_reshape = tgt_h.contiguous().view(
+                tgt_h.size()[0] * tgt_h.size()[1],
+                tgt_h.size()[2]
             )
-            decoder_logit = self.decoder2vocab_l2(trg_h_reshape)
+            decoder_logit = self.decoder2vocab_l2(tgt_h_reshape)
             decoder_logit = decoder_logit.view(
-                trg_h.size()[0],
-                trg_h.size()[1],
+                tgt_h.size()[0],
+                tgt_h.size()[1],
                 decoder_logit.size()[1]
             )
         return decoder_logit
@@ -698,9 +698,9 @@ class Seq2SeqMono(nn.Module):
     def decode(self, logits, l1_decoder=False):
         """Return probability distribution over words."""
         if l1_decoder:
-            logits_reshape = logits.view(-1, self.trg_vocab_size_l1)
+            logits_reshape = logits.view(-1, self.tgt_vocab_size_l1)
         else:
-            logits_reshape = logits.view(-1, self.trg_vocab_size_l2)
+            logits_reshape = logits.view(-1, self.tgt_vocab_size_l2)
         word_probs = F.softmax(logits)
         word_probs = word_probs.view(
             logits.size()[0], logits.size()[1], logits.size()[2]

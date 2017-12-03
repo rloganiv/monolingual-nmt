@@ -15,13 +15,13 @@ def hyperparam_string(config):
     exp_name = ''
     exp_name += 'model_%s__' % (config['data']['task'])
     exp_name += 'src_%s__' % (config['model']['src_lang'])
-    exp_name += 'trg_%s__' % (config['model']['trg_lang'])
+    exp_name += 'tgt_%s__' % (config['model']['tgt_lang'])
     exp_name += 'attention_%s__' % (config['model']['seq2seq'])
     exp_name += 'dim_%s__' % (config['model']['dim'])
     exp_name += 'emb_dim_%s__' % (config['model']['dim_word_src'])
     exp_name += 'optimizer_%s__' % (config['training']['optimizer'])
     exp_name += 'n_layers_src_%d__' % (config['model']['n_layers_src'])
-    exp_name += 'n_layers_trg_%d__' % (1)
+    exp_name += 'n_layers_tgt_%d__' % (1)
     exp_name += 'bidir_%s' % (config['model']['bidirectional'])
 
     return exp_name
@@ -84,7 +84,7 @@ def construct_vocab(lines, vocab_size):
     return word2id, id2word
 
 
-def read_dialog_summarization_data(src, config, trg):
+def read_dialog_summarization_data(src, config, tgt):
     """Read data from files."""
     print 'Reading source data ...'
     src_lines = []
@@ -93,23 +93,23 @@ def read_dialog_summarization_data(src, config, trg):
             src_lines.append(line.strip().split())
 
     print 'Reading target data ...'
-    trg_lines = []
-    with open(trg, 'r') as f:
+    tgt_lines = []
+    with open(tgt, 'r') as f:
         for line in f:
-            trg_lines.append(line.strip().split())
+            tgt_lines.append(line.strip().split())
 
     print 'Constructing common vocabulary ...'
     word2id, id2word = construct_vocab(
-        src_lines + trg_lines, config['data']['n_words_src']
+        src_lines + tgt_lines, config['data']['n_words_src']
     )
 
     src = {'data': src_lines, 'word2id': word2id, 'id2word': id2word}
-    trg = {'data': trg_lines, 'word2id': word2id, 'id2word': id2word}
+    tgt = {'data': tgt_lines, 'word2id': word2id, 'id2word': id2word}
 
-    return src, trg
+    return src, tgt
 
 
-def read_nmt_data(src, config, trg=None):
+def read_nmt_data(src, config, tgt=None):
     """Read data from files."""
     print 'Reading source data ...'
     src_lines = []
@@ -125,34 +125,34 @@ def read_nmt_data(src, config, trg=None):
     src = {'data': src_lines, 'word2id': src_word2id, 'id2word': src_id2word}
     del src_lines
 
-    if trg is not None:
+    if tgt is not None:
         print 'Reading target data ...'
-        trg_lines = []
-        with open(trg, 'r') as f:
+        tgt_lines = []
+        with open(tgt, 'r') as f:
             for line in f:
-                trg_lines.append(line.strip().split())
+                tgt_lines.append(line.strip().split())
 
         print 'Constructing target vocabulary ...'
-        trg_word2id, trg_id2word = construct_vocab(
-            trg_lines, config['data']['n_words_trg']
+        tgt_word2id, tgt_id2word = construct_vocab(
+            tgt_lines, config['data']['n_words_tgt']
         )
 
-        trg = {'data': trg_lines, 'word2id': trg_word2id, 'id2word': trg_id2word}
+        tgt = {'data': tgt_lines, 'word2id': tgt_word2id, 'id2word': tgt_id2word}
     else:
-        trg = None
+        tgt = None
 
-    return src, trg
+    return src, tgt
 
 
-def read_summarization_data(src, trg):
+def read_summarization_data(src, tgt):
     """Read data from files."""
     src_lines = [line.strip().split() for line in open(src, 'r')]
-    trg_lines = [line.strip().split() for line in open(trg, 'r')]
-    word2id, id2word = construct_vocab(src_lines + trg_lines, 30000)
+    tgt_lines = [line.strip().split() for line in open(tgt, 'r')]
+    word2id, id2word = construct_vocab(src_lines + tgt_lines, 30000)
     src = {'data': src_lines, 'word2id': word2id, 'id2word': id2word}
-    trg = {'data': trg_lines, 'word2id': word2id, 'id2word': id2word}
+    tgt = {'data': tgt_lines, 'word2id': word2id, 'id2word': id2word}
 
-    return src, trg
+    return src, tgt
 
 
 def get_minibatch(

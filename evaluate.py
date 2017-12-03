@@ -75,32 +75,32 @@ def decode_minibatch(
     config,
     model,
     input_lines_src,
-    input_lines_trg,
+    input_lines_tgt,
     lengths,
     l1_decoder=False
 ):
     """Decode a minibatch."""
     for i in xrange(config['data']['max_len']):
 
-        decoder_logit = model(input_lines_src, input_lines_trg, lengths,l1_decoder=l1_decoder)
+        decoder_logit = model(input_lines_src, input_lines_tgt, lengths,l1_decoder=l1_decoder)
         word_probs = model.decode(decoder_logit, l1_decoder=l1_decoder)
         decoder_argmax = word_probs.data.cpu().numpy().argmax(axis=-1)
         next_preds = Variable(
             torch.from_numpy(decoder_argmax[:, -1])
         )
 
-        input_lines_trg = torch.cat(
-            (input_lines_trg, next_preds.unsqueeze(1)),
+        input_lines_tgt = torch.cat(
+            (input_lines_tgt, next_preds.unsqueeze(1)),
             1
         )
 
-    return input_lines_trg
+    return input_lines_tgt
 
 
 def model_perplexity(
-    model, src, src_test, trg,
-    trg_test, config, loss_criterion,
-    src_valid=None, trg_valid=None, verbose=False,
+    model, src, src_test, tgt,
+    tgt_test, config, loss_criterion,
+    src_valid=None, tgt_valid=None, verbose=False,
 ):
     """Compute model perplexity."""
     # Get source minibatch
@@ -115,22 +115,22 @@ def model_perplexity(
         mask_src = Variable(mask_src.data, volatile=True)
 
         # Get target minibatch
-        input_lines_trg_gold, output_lines_trg_gold, lens_src, mask_src = (
+        input_lines_tgt_gold, output_lines_tgt_gold, lens_src, mask_src = (
             get_minibatch(
-                trg_test['data'], trg['word2id'], j,
-                config['data']['batch_size'], config['data']['max_trg_length'],
+                tgt_test['data'], tgt['word2id'], j,
+                config['data']['batch_size'], config['data']['max_tgt_length'],
                 add_start=True, add_end=True
             )
         )
-        input_lines_trg_gold = Variable(input_lines_trg_gold.data, volatile=True)
-        output_lines_trg_gold = Variable(output_lines_trg_gold.data, volatile=True)
+        input_lines_tgt_gold = Variable(input_lines_tgt_gold.data, volatile=True)
+        output_lines_tgt_gold = Variable(output_lines_tgt_gold.data, volatile=True)
         mask_src = Variable(mask_src.data, volatile=True)
 
-        decoder_logit = model(input_lines_src, input_lines_trg_gold)
+        decoder_logit = model(input_lines_src, input_lines_tgt_gold)
 
         loss = loss_criterion(
             decoder_logit.contiguous().view(-1, decoder_logit.size(2)),
-            output_lines_trg_gold.view(-1)
+            output_lines_tgt_gold.view(-1)
         )
 
         losses.append(loss.data[0])
@@ -154,36 +154,36 @@ def evaluate_alignment_model(model_l1_l2, model_l2_l1, test_data, config, metric
         input_lines_target = Variable(torch.LongTensor([1]*source.size(0)).unsqueeze(1))
         
         # Decode a minibatch greedily __TODO__ add beam search decoding
-        input_lines_trg = decode_minibatch(
+        input_lines_tgt = decode_minibatch(
             config, model_l1_l2, source,
             input_lines_target, lengths[0]
         )
 
         # Copy minibatch outputs to cpu and convert ids to words
-        input_lines_trg = input_lines_trg.data.cpu().numpy()
-        input_lines_trg = [
+        input_lines_tgt = input_lines_tgt.data.cpu().numpy()
+        input_lines_tgt = [
             [test_data.dictionary_tgt.idx2word[x] for x in line]
-            for line in input_lines_trg
+            for line in input_lines_tgt
         ]
 
         # Do the same for gold sentences
-        output_lines_trg_gold = target.data.cpu().numpy()
-        output_lines_trg_gold = [
+        output_lines_tgt_gold = target.data.cpu().numpy()
+        output_lines_tgt_gold = [
             [test_data.dictionary_tgt.idx2word[x] for x in line]
-            for line in output_lines_trg_gold
+            for line in output_lines_tgt_gold
         ]
 
         while count<5:
-            logging.info('Predicted : %s ' % (' '.join(input_lines_trg[0])))
+            logging.info('Predicted : %s ' % (' '.join(input_lines_tgt[0])))
             logging.info('-----------------------------------------------')
-            logging.info('Real : %s ' % (' '.join(output_lines_trg_gold[0])))
+            logging.info('Real : %s ' % (' '.join(output_lines_tgt_gold[0])))
             logging.info('===============================================')
             count+=1
             
         # Process outputs
         for sentence_pred, sentence_real in zip(
-            input_lines_trg,
-            output_lines_trg_gold ):
+            input_lines_tgt,
+            output_lines_tgt_gold ):
             if '<eos>' in sentence_pred:
                 index = sentence_pred.index('<eos>')
             else:
@@ -203,17 +203,17 @@ def evaluate_alignment_model(model_l1_l2, model_l2_l1, test_data, config, metric
         input_lines_target = Variable(torch.LongTensor([1]*target.size(0)).unsqueeze(1))
         
         # Decode a minibatch greedily
-        input_lines_trg = decode_minibatch(
+        input_lines_tgt = decode_minibatch(
             config, model_l2_l1, target,
             input_lines_target, lengths
         )
 
     
         # Copy minibatch outputs to cpu and convert ids to words
-        input_lines_trg = input_lines_trg.data.cpu().numpy()
-        input_lines_trg = [
+        input_lines_tgt = input_lines_tgt.data.cpu().numpy()
+        input_lines_tgt = [
             [test_data.dictionary_tgt.idx2word[x] for x in line]
-            for line in input_lines_trg
+            for line in input_lines_tgt
         ]
 
         # Do the same for gold sentences
@@ -225,7 +225,7 @@ def evaluate_alignment_model(model_l1_l2, model_l2_l1, test_data, config, metric
 
         # Process outputs
         for sentence_pred, sentence_real in zip(
-            input_lines_trg,
+            input_lines_tgt,
             output_lines_src_gold ):
             if '<eos>' in sentence_pred:
                 index = sentence_pred.index('<eos>')
@@ -251,32 +251,32 @@ def evaluate_autoencoder_model(model, test_data, config, metric='bleu'):
     test_iter = iter(test_data)
     for j in xrange(0, len(test_data), config['data']['batch_size']):
 
-        source, target, output_lines_trg, lengths = test_iter.next()
+        source, target, output_lines_tgt, lengths = test_iter.next()
         
         input_lines_target = Variable(torch.LongTensor([1]*source.size(0)).unsqueeze(1))
         
         # Decode a minibatch greedily __TODO__ add beam search decoding
-        input_lines_trg = decode_minibatch(
+        input_lines_tgt = decode_minibatch(
             config, model, source,
             input_lines_target,lengths
         )
 
         # Copy minibatch outputs to cpu and convert ids to words
-        input_lines_trg = input_lines_trg.data.cpu().numpy()
-        input_lines_trg = [
+        input_lines_tgt = input_lines_tgt.data.cpu().numpy()
+        input_lines_tgt = [
             [test_data.dataset.dictionary_tgt.idx2word[x] for x in line]
-            for line in input_lines_trg
+            for line in input_lines_tgt
         ]
 
         # Do the same for gold sentences
-        output_lines_trg = output_lines_trg.data.cpu().numpy()
-        output_lines_trg = [
+        output_lines_tgt = output_lines_tgt.data.cpu().numpy()
+        output_lines_tgt = [
             [test_data.dataset.dictionary_tgt.idx2word[x] for x in line]
-            for line in output_lines_trg
+            for line in output_lines_tgt
         ]
         # Process outputs
         for sentence_pred, sentence_real in \
-                                zip(input_lines_trg, output_lines_trg):
+                                zip(input_lines_tgt, output_lines_tgt):
             if '<eos>' in sentence_pred:
                 index = sentence_pred.index('<eos>')
             else:
@@ -307,37 +307,37 @@ def evaluate_mono_nmt(model, test_data, config, metric='bleu'):
         input_lines_target = Variable(torch.LongTensor([1]*source.size(0)).unsqueeze(1))
         
         # Decode a minibatch greedily __TODO__ add beam search decoding
-        input_lines_trg = decode_minibatch(
+        input_lines_tgt = decode_minibatch(
             config, model, source,
             input_lines_target, lengths[0],
             l1_decoder=False
         )
 
         # Copy minibatch outputs to cpu and convert ids to words
-        input_lines_trg = input_lines_trg.data.cpu().numpy()
-        input_lines_trg = [
+        input_lines_tgt = input_lines_tgt.data.cpu().numpy()
+        input_lines_tgt = [
             [test_data.dataset.dictionary_tgt.idx2word[x] for x in line]
-            for line in input_lines_trg
+            for line in input_lines_tgt
         ]
 
         # Do the same for gold sentences
-        output_lines_trg_gold = target.data.cpu().numpy()
-        output_lines_trg_gold = [
+        output_lines_tgt_gold = target.data.cpu().numpy()
+        output_lines_tgt_gold = [
             [test_data.dataset.dictionary_tgt.idx2word[x] for x in line]
-            for line in output_lines_trg_gold
+            for line in output_lines_tgt_gold
         ]
 
         while count<10:
-            print('Predicted : %s ' % (' '.join(input_lines_trg[0])))
+            print('Predicted : %s ' % (' '.join(input_lines_tgt[0])))
             print('-----------------------------------------------')
-            print('Real : %s ' % (' '.join(output_lines_trg_gold[0])))
+            print('Real : %s ' % (' '.join(output_lines_tgt_gold[0])))
             print('===============================================')
             count+=1
             
         # Process outputs
         for sentence_pred, sentence_real in zip(
-            input_lines_trg,
-            output_lines_trg_gold ):
+            input_lines_tgt,
+            output_lines_tgt_gold ):
             if '<eos>' in sentence_pred:
                 index = sentence_pred.index('<eos>')
             else:
@@ -357,7 +357,7 @@ def evaluate_mono_nmt(model, test_data, config, metric='bleu'):
         input_lines_target = Variable(torch.LongTensor([1]*target.size(0)).unsqueeze(1))
         
         # Decode a minibatch greedily
-        input_lines_trg = decode_minibatch(
+        input_lines_tgt = decode_minibatch(
             config, model, target,
             input_lines_target, lengths[1],
             l1_decoder=True
@@ -365,10 +365,10 @@ def evaluate_mono_nmt(model, test_data, config, metric='bleu'):
 
     
         # Copy minibatch outputs to cpu and convert ids to words
-        input_lines_trg = input_lines_trg.data.cpu().numpy()
-        input_lines_trg = [
+        input_lines_tgt = input_lines_tgt.data.cpu().numpy()
+        input_lines_tgt = [
             [test_data.dataset.dictionary_tgt.idx2word[x] for x in line]
-            for line in input_lines_trg
+            for line in input_lines_tgt
         ]
 
         # Do the same for gold sentences
@@ -380,7 +380,7 @@ def evaluate_mono_nmt(model, test_data, config, metric='bleu'):
 
         # Process outputs
         for sentence_pred, sentence_real in zip(
-            input_lines_trg,
+            input_lines_tgt,
             output_lines_src_gold ):
             if '<eos>' in sentence_pred:
                 index = sentence_pred.index('<eos>')

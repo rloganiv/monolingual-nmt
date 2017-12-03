@@ -52,20 +52,20 @@ logging.info('Model Parameters : ')
 logging.info('Task : %s ' % (config['data']['task']))
 logging.info('Model : %s ' % (config['model']['seq2seq']))
 logging.info('Source Language : %s ' % (config['model']['src_lang']))
-logging.info('Target Language : %s ' % (config['model']['trg_lang']))
+logging.info('Target Language : %s ' % (config['model']['tgt_lang']))
 logging.info('Source Word Embedding Dim  : %s' % (config['model']['dim_word_src']))
-logging.info('Target Word Embedding Dim  : %s' % (config['model']['dim_word_trg']))
+logging.info('Target Word Embedding Dim  : %s' % (config['model']['dim_word_tgt']))
 logging.info('Source RNN Hidden Dim  : %s' % (config['model']['dim']))
 logging.info('Target RNN Hidden Dim  : %s' % (config['model']['dim']))
 logging.info('Source RNN Depth : %d ' % (config['model']['n_layers_src']))
 logging.info('Target RNN Depth : %d ' % (1))
 logging.info('Source RNN Bidirectional  : %s' % (config['model']['bidirectional']))
-logging.info('Batch Size : %d ' % (config['model']['n_layers_trg']))
+logging.info('Batch Size : %d ' % (config['model']['n_layers_tgt']))
 logging.info('Optimizer : %s ' % (config['training']['optimizer']))
 logging.info('Learning Rate : %f ' % (config['training']['lrate']))
 
-#weight_mask = torch.ones(trg_vocab_size).cuda()
-#weight_mask[trg['word2id']['<pad>']] = 0
+#weight_mask = torch.ones(tgt_vocab_size).cuda()
+#weight_mask[tgt['word2id']['<pad>']] = 0
 criterion_l1 = nn.CrossEntropyLoss()
 criterion_l2 = nn.CrossEntropyLoss()
 criterion_l1_l2 = nn.CrossEntropyLoss()
@@ -88,7 +88,7 @@ src_ntokens =  len(corpus_train_src.dictionary_src.word2idx)
 tgt_ntokens =  len(corpus_train_tgt.dictionary_tgt.word2idx)
 
 logging.info('Found %d words in src ' % (src_ntokens))
-logging.info('Found %d words in trg ' % (tgt_ntokens))
+logging.info('Found %d words in tgt ' % (tgt_ntokens))
 
 src_ntokens= min(src_ntokens, args.data.src_vocab_size )
 tgt_ntokens = min(tgt_ntokens, args.data.tgt_vocab_size )
@@ -106,98 +106,98 @@ gpuid = map(int,gpuid) if str(gpuid[0]) else None
 if len(gpuid)>1:
     autoenc_L1 = Seq2SeqAttention(
         src_emb_dim=config['model']['dim_word_src'],
-        trg_emb_dim=config['model']['dim_word_src'],
+        tgt_emb_dim=config['model']['dim_word_src'],
         src_vocab_size=src_ntokens,
-        trg_vocab_size=src_ntokens,
+        tgt_vocab_size=src_ntokens,
         src_hidden_dim=config['model']['dim'],
-        trg_hidden_dim=config['model']['dim'],
+        tgt_hidden_dim=config['model']['dim'],
         ctx_hidden_dim=config['model']['dim'],
         attention_mode='dot',
         fixed_embeddings=True,
         batch_size=config['data']['batch_size'],
         bidirectional=config['model']['bidirectional'],
         nlayers=config['model']['n_layers_src'],
-        nlayers_trg=config['model']['n_layers_trg'],
+        nlayers_tgt=config['model']['n_layers_tgt'],
         dropout=0.3, gpu=(gpuid is not None)
     )
     autoencoder_L1 = torch.nn.DataParallel(autoenc_L1.cuda(), device_ids=gpuid)
     autoenc_L2 = Seq2SeqAttention(
-        src_emb_dim=config['model']['dim_word_trg'],
-        trg_emb_dim=config['model']['dim_word_trg'],
+        src_emb_dim=config['model']['dim_word_tgt'],
+        tgt_emb_dim=config['model']['dim_word_tgt'],
         src_vocab_size=src_ntokens,
-        trg_vocab_size=src_ntokens,
+        tgt_vocab_size=src_ntokens,
         src_hidden_dim=config['model']['dim'],
-        trg_hidden_dim=config['model']['dim'],
+        tgt_hidden_dim=config['model']['dim'],
         ctx_hidden_dim=config['model']['dim'],
         attention_mode='dot',
         fixed_embeddings=True,
         batch_size=config['data']['batch_size'],
         bidirectional=config['model']['bidirectional'],
         nlayers=config['model']['n_layers_src'],
-        nlayers_trg=config['model']['n_layers_trg'],
+        nlayers_tgt=config['model']['n_layers_tgt'],
         dropout=0.3, gpu=(gpuid is not None)
     )
     autoencoder_L2 = torch.nn.DataParallel(autoenc_L2.cuda(), device_ids=gpuid)
 else:
     autoencoder_L1 = Seq2SeqAttention(
                 src_emb_dim=config['model']['dim_word_src'],
-                trg_emb_dim=config['model']['dim_word_src'],
+                tgt_emb_dim=config['model']['dim_word_src'],
                 src_vocab_size=src_ntokens,
-                trg_vocab_size=src_ntokens,
+                tgt_vocab_size=src_ntokens,
                 src_hidden_dim=config['model']['dim'],
-                trg_hidden_dim=config['model']['dim'],
+                tgt_hidden_dim=config['model']['dim'],
                 ctx_hidden_dim=config['model']['dim'],
                 attention_mode='dot',
                 fixed_embeddings=True,
                 batch_size=config['data']['batch_size'],
                 bidirectional=config['model']['bidirectional'],
                 nlayers=config['model']['n_layers_src'],
-                nlayers_trg=config['model']['n_layers_trg'],
+                nlayers_tgt=config['model']['n_layers_tgt'],
                 dropout=0.3, gpu=(gpuid is not None))
     autoencoder_L2 = Seq2SeqAttention(
-                src_emb_dim=config['model']['dim_word_trg'],
-                trg_emb_dim=config['model']['dim_word_trg'],
+                src_emb_dim=config['model']['dim_word_tgt'],
+                tgt_emb_dim=config['model']['dim_word_tgt'],
                 src_vocab_size=tgt_ntokens,
-                trg_vocab_size=tgt_ntokens,
+                tgt_vocab_size=tgt_ntokens,
                 src_hidden_dim=config['model']['dim'],
-                trg_hidden_dim=config['model']['dim'],
+                tgt_hidden_dim=config['model']['dim'],
                 ctx_hidden_dim=config['model']['dim'],
                 attention_mode='dot',
                 fixed_embeddings=True,
                 batch_size=config['data']['batch_size'],
                 bidirectional=config['model']['bidirectional'],
                 nlayers=config['model']['n_layers_src'],
-                nlayers_trg=config['model']['n_layers_trg'],
+                nlayers_tgt=config['model']['n_layers_tgt'],
                 dropout=0.3, gpu=(gpuid is not None))
     seq2seq_L1_L2 = Seq2SeqAttention(
                 src_emb_dim=config['model']['dim_word_src'],
-                trg_emb_dim=config['model']['dim_word_trg'],
+                tgt_emb_dim=config['model']['dim_word_tgt'],
                 src_vocab_size=tgt_ntokens,
-                trg_vocab_size=tgt_ntokens,
+                tgt_vocab_size=tgt_ntokens,
                 src_hidden_dim=config['model']['dim'],
-                trg_hidden_dim=config['model']['dim'],
+                tgt_hidden_dim=config['model']['dim'],
                 ctx_hidden_dim=config['model']['dim'],
                 attention_mode='dot',
                 fixed_embeddings=True,
                 batch_size=config['data']['batch_size'],
                 bidirectional=config['model']['bidirectional'],
                 nlayers=config['model']['n_layers_src'],
-                nlayers_trg=config['model']['n_layers_trg'],
+                nlayers_tgt=config['model']['n_layers_tgt'],
                 dropout=0.3, gpu=(gpuid is not None))
     seq2seq_L2_L1 = Seq2SeqAttention(
-                src_emb_dim=config['model']['dim_word_trg'],
-                trg_emb_dim=config['model']['dim_word_src'],
+                src_emb_dim=config['model']['dim_word_tgt'],
+                tgt_emb_dim=config['model']['dim_word_src'],
                 src_vocab_size=tgt_ntokens,
-                trg_vocab_size=tgt_ntokens,
+                tgt_vocab_size=tgt_ntokens,
                 src_hidden_dim=config['model']['dim'],
-                trg_hidden_dim=config['model']['dim'],
+                tgt_hidden_dim=config['model']['dim'],
                 ctx_hidden_dim=config['model']['dim'],
                 attention_mode='dot',
                 fixed_embeddings=True,
                 batch_size=config['data']['batch_size'],
                 bidirectional=config['model']['bidirectional'],
                 nlayers=config['model']['n_layers_src'],
-                nlayers_trg=config['model']['n_layers_trg'],
+                nlayers_tgt=config['model']['n_layers_tgt'],
                 dropout=0.3, gpu=(gpuid is not None))
     
     if len(gpuid) == 1:
@@ -271,8 +271,8 @@ for i in xrange(1000):
         
     for j in xrange(0, len(L1_train_iter)):
 
-        source_l1, target_l1, output_lines_trg_l1, lengths_l1 = L1_train_iter.next()
-        source_l2, target_l2, output_lines_trg_l2, lengths_l2 = L2_train_iter.next()
+        source_l1, target_l1, output_lines_tgt_l1, lengths_l1 = L1_train_iter.next()
+        source_l2, target_l2, output_lines_tgt_l2, lengths_l2 = L2_train_iter.next()
         source_l1_aligned, target_l2_aligned, source_l1_flat, target_l2_flat, lengths = L1_L2_train_iter.next()
         
         if gpuid:
@@ -298,12 +298,12 @@ for i in xrange(1000):
             
             word_probs_l2 = autoencoder_L2.decode(output_l2).data.cpu().numpy().argmax(axis=-1)
 
-            output_lines_trg_l1 = output_lines_trg_l1.data.cpu().numpy()
-            output_lines_trg_l2 = output_lines_trg_l2.data.cpu().numpy()
+            output_lines_tgt_l1 = output_lines_tgt_l1.data.cpu().numpy()
+            output_lines_tgt_l2 = output_lines_tgt_l2.data.cpu().numpy()
             
             print ("-------Training recosntructions----------")
             for sentence_pred, sentence_real in zip(
-                word_probs_l1[:5], output_lines_trg_l1[:5]):
+                word_probs_l1[:5], output_lines_tgt_l1[:5]):
                 sentence_pred = [corpus_train_src.dictionary_src.idx2word[x] for x in sentence_pred]
                 sentence_real = [corpus_train_src.dictionary_src.idx2word[x] for x in sentence_real]
 
@@ -318,7 +318,7 @@ for i in xrange(1000):
                 logging.info('===============================================')
                 
             for sentence_pred, sentence_real in zip(
-                word_probs_l2[:5], output_lines_trg_l2[:5]):
+                word_probs_l2[:5], output_lines_tgt_l2[:5]):
                 sentence_pred = [corpus_train_tgt.dictionary_tgt.idx2word[x] for x in sentence_pred]
                 sentence_real = [corpus_train_tgt.dictionary_tgt.idx2word[x] for x in sentence_real]
 

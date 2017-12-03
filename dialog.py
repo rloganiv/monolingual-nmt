@@ -53,21 +53,21 @@ logging.getLogger('').addHandler(console)
 
 print 'Reading data ...'
 
-src, trg = read_dialog_summarization_data(
+src, tgt = read_dialog_summarization_data(
     config['data']['src'],
     config,
-    config['data']['trg']
+    config['data']['tgt']
 )
 
-src_test, trg_test = read_dialog_summarization_data(
+src_test, tgt_test = read_dialog_summarization_data(
     config['data']['test_src'],
     config,
-    config['data']['test_trg']
+    config['data']['test_tgt']
 )
 
 batch_size = config['data']['batch_size']
 max_length_src = config['data']['max_src_length']
-max_length_trg = config['data']['max_trg_length']
+max_length_tgt = config['data']['max_tgt_length']
 vocab_size = len(src['word2id'])
 
 logging.info('Model Parameters : ')
@@ -87,22 +87,22 @@ logging.info('Learning Rate : %f ' % (config['training']['lrate']))
 logging.info('Found %d words ' % (vocab_size))
 
 weight_mask = torch.ones(vocab_size).cuda()
-weight_mask[trg['word2id']['<pad>']] = 0
+weight_mask[tgt['word2id']['<pad>']] = 0
 loss_criterion = nn.CrossEntropyLoss(weight=weight_mask).cuda()
 
 model = Seq2SeqAttentionSharedEmbedding(
     emb_dim=config['model']['dim_word_src'],
     vocab_size=vocab_size,
     src_hidden_dim=config['model']['dim'],
-    trg_hidden_dim=config['model']['dim'],
+    tgt_hidden_dim=config['model']['dim'],
     ctx_hidden_dim=config['model']['dim'],
     attention_mode='dot',
     batch_size=batch_size,
     bidirectional=config['model']['bidirectional'],
     pad_token_src=src['word2id']['<pad>'],
-    pad_token_trg=trg['word2id']['<pad>'],
+    pad_token_tgt=tgt['word2id']['<pad>'],
     nlayers=config['model']['n_layers_src'],
-    nlayers_trg=config['model']['n_layers_trg'],
+    nlayers_tgt=config['model']['n_layers_tgt'],
     dropout=0.,
 ).cuda()
 
@@ -132,17 +132,17 @@ for i in xrange(1000):
             batch_size, max_length_src, add_start=True, add_end=False
         )
 
-        input_lines_trg, output_lines_trg, lens_trg, mask_trg = get_minibatch(
-            trg['data'], trg['word2id'], j,
-            batch_size, max_length_trg, add_start=True, add_end=True
+        input_lines_tgt, output_lines_tgt, lens_tgt, mask_tgt = get_minibatch(
+            tgt['data'], tgt['word2id'], j,
+            batch_size, max_length_tgt, add_start=True, add_end=True
         )
 
-        decoder_logit = model(input_lines_src, input_lines_trg)
+        decoder_logit = model(input_lines_src, input_lines_tgt)
         optimizer.zero_grad()
 
         loss = loss_criterion(
             decoder_logit.contiguous().view(-1, vocab_size),
-            output_lines_trg.view(-1)
+            output_lines_tgt.view(-1)
         )
         losses.append(loss.data[0])
         loss.backward()
@@ -162,12 +162,12 @@ for i in xrange(1000):
                 decoder_logit
             ).data.cpu().numpy().argmax(axis=-1)
 
-            output_lines_trg = output_lines_trg.data.cpu().numpy()
+            output_lines_tgt = output_lines_tgt.data.cpu().numpy()
             for sentence_pred, sentence_real in zip(
-                word_probs[:5], output_lines_trg[:5]
+                word_probs[:5], output_lines_tgt[:5]
             ):
-                sentence_pred = [trg['id2word'][x] for x in sentence_pred]
-                sentence_real = [trg['id2word'][x] for x in sentence_real]
+                sentence_pred = [tgt['id2word'][x] for x in sentence_pred]
+                sentence_real = [tgt['id2word'][x] for x in sentence_real]
 
                 if '</s>' in sentence_real:
                     index = sentence_real.index('</s>')
@@ -183,8 +183,8 @@ for i in xrange(1000):
 
             logging.info('Computing Perplexity ... ')
             perplexity = model_perplexity(
-                model, src, src_test, trg,
-                trg_test, config, loss_criterion,
+                model, src, src_test, tgt,
+                tgt_test, config, loss_criterion,
                 verbose=False
             )
 
@@ -211,8 +211,8 @@ for i in xrange(1000):
 
     logging.info('Computing Perplexity ... ')
     perplexity = model_perplexity(
-        model, src, src_test, trg,
-        trg_test, config, loss_criterion,
+        model, src, src_test, tgt,
+        tgt_test, config, loss_criterion,
         verbose=False
     )
 
