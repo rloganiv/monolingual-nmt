@@ -503,9 +503,8 @@ class Seq2SeqMono(nn.Module):
         self,
         src_emb_dim,
         tgt_emb_dim,
-        src_vocab_size,
-        tgt_vocab_size_l1,
-        tgt_vocab_size_l2,
+        vocab_size_l1,
+        vocab_size_l2,
         src_hidden_dim,
         tgt_hidden_dim,
         ctx_hidden_dim,
@@ -521,9 +520,8 @@ class Seq2SeqMono(nn.Module):
     ):
         """Initialize model."""
         super(Seq2SeqMono, self).__init__()
-        self.src_vocab_size = src_vocab_size
-        self.tgt_vocab_size_l1 = tgt_vocab_size_l1
-        self.tgt_vocab_size_l2 = tgt_vocab_size_l2
+        self.vocab_size_l1 = vocab_size_l1
+        self.vocab_size_l2 = vocab_size_l2
         self.src_emb_dim = src_emb_dim
         self.tgt_emb_dim = tgt_emb_dim
         self.src_hidden_dim = src_hidden_dim
@@ -541,20 +539,23 @@ class Seq2SeqMono(nn.Module):
         else:
             self.src_hidden_dim= src_hidden_dim
 
-        self.src_embedding = nn.Embedding(
-            src_vocab_size,
+        self.src_embedding_l1 = nn.Embedding(
+            vocab_size_l1,
             src_emb_dim)
+        self.src_embedding_l2 = nn.Embedding(
+            vocab_size_l2,
+            src_emb_dim)
+
         self.tgt_embedding_l1 = nn.Embedding(
-            tgt_vocab_size_l1,
+            vocab_size_l1,
             tgt_emb_dim)
         self.tgt_embedding_l2 = nn.Embedding(
-            tgt_vocab_size_l2,
+            vocab_size_l2,
             tgt_emb_dim)
 
         if fixed_embeddings:
-            list(self.src_embedding.parameters())[0].requires_grad = False
-            list(self.tgt_embedding_l1.parameters())[0].requires_grad = False
-            list(self.tgt_embedding_l2.parameters())[0].requires_grad = False
+            list(self.src_embedding_l1.parameters())[0].requires_grad = False
+            list(self.src_embedding_l2.parameters())[0].requires_grad = False
 
         self.encoder = nn.GRU(
             src_emb_dim,
@@ -582,15 +583,20 @@ class Seq2SeqMono(nn.Module):
             self.src_hidden_dim * self.num_directions,
             tgt_hidden_dim)
 
-        self.decoder2vocab_l1 = nn.Linear(tgt_hidden_dim, tgt_vocab_size_l1)
-        self.decoder2vocab_l2 = nn.Linear(tgt_hidden_dim, tgt_vocab_size_l2)
+        self.decoder2vocab_l1 = nn.Linear(tgt_hidden_dim, vocab_size_l1)
+        self.decoder2vocab_l2 = nn.Linear(tgt_hidden_dim, vocab_size_l2)
         self.gpu = gpu
-        self.init_weights()
 
-    def init_weights(self):
-        """Initialize weights."""
+    def init_weights(self, l1_embeddings, l2_embeddings):
+        """Initialize weights.
+
+        Args:
+            l1_embeddings: Embedding matrix for language 1.
+            l2_embeddings: Embedding matrix for language 2.
+        """
         initrange = 0.1
-        self.src_embedding.weight.data.uniform_(-initrange, initrange)
+        self.src_embedding_l1.weight.data.copy_(l1_embeddings)
+        self.src_embedding_l2.weight.data.copy_(l2_embeddings)
         self.tgt_embedding_l1.weight.data.uniform_(-initrange, initrange)
         self.tgt_embedding_l2.weight.data.uniform_(-initrange, initrange)
         self.encoder2decoder1.bias.data.fill_(0)
@@ -611,14 +617,18 @@ class Seq2SeqMono(nn.Module):
             h0_encoder = h0_encoder.cuda()
         return h0_encoder
 
-    def forward(self, input_src, input_tgt, lengths=None, \
-                tgt_mask=None, ctx_mask=None, gpu=False, \
+    def forward(self, input_src, input_tgt, lengths=None, tgt_mask=None,
+                ctx_mask=None, gpu=False, input_language=None,
                 l1_decoder=True, use_maxlen=False, unsup=False):
         """Propogate input through the network."""
 
-
         # embed
-        src_emb = self.src_embedding(input_src)
+        if input_language=='l1':
+            src_emb = self.src_embedding_l1(input_src)
+        elif input_language=='l2':
+            src_emb = self.src_embedding_l2(input_src)
+        else:
+            raise ValueError("input_language must be 'l1' or 'l2'")
 
         if l1_decoder:
             if unsup:
@@ -687,9 +697,9 @@ class Seq2SeqMono(nn.Module):
     def decode(self, logits, l1_decoder=False):
         """Return probability distribution over words."""
         if l1_decoder:
-            logits_reshape = logits.view(-1, self.tgt_vocab_size_l1)
+            logits_reshape = logits.view(-1, self.vocab_size_l1)
         else:
-            logits_reshape = logits.view(-1, self.tgt_vocab_size_l2)
+            logits_reshape = logits.view(-1, self.vocab_size_l2)
         word_probs = F.softmax(logits)
         word_probs = word_probs.view(
             logits.size()[0], logits.size()[1], logits.size()[2]
