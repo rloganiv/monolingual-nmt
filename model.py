@@ -167,18 +167,18 @@ class SoftDotAttention(nn.Module):
 class GRUAttentionDot(nn.Module):
     r"""A long short-term memory (LSTM) cell with attention."""
 
-    def __init__(self, input_size, hidden_size, batch_first=True, dropout=0.3,maxlen=50):
+    def __init__(self, input_size, hidden_size, num_layers=2, batch_first=True, dropout=0.3,maxlen=50):
         """Initialize params."""
         super(GRUAttentionDot, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.num_layers = 1
+        self.num_layers = num_layers
         self.batch_first = batch_first
         self.maxlen = maxlen
         self.dropout = dropout
         self.decoder_rnn = nn.GRU(input_size,
                                   hidden_size,
-                                  self.num_layers,
+                                  num_layers,
                                   bidirectional=False,
                                   batch_first=True,
                                   dropout=self.dropout)
@@ -565,7 +565,7 @@ class Seq2SeqMono(nn.Module):
             dropout=self.dropout
         )
 
-        self.decoder_l1 = StackedAttentionGRU(
+        self.decoder_l1 = GRUAttentionDot(
             trg_emb_dim,
             trg_hidden_dim,
             nlayers,
@@ -573,7 +573,7 @@ class Seq2SeqMono(nn.Module):
             maxlen=maxlen
         )
         
-        self.decoder_l2 = StackedAttentionGRU(
+        self.decoder_l2 = GRUAttentionDot(
             trg_emb_dim,
             trg_hidden_dim,
             nlayers,
