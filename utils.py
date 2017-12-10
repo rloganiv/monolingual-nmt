@@ -181,6 +181,7 @@ class MonolingualDataset(Dataset):
         file_index = self._lookup_file_index(index)
         if file_index != self._active_file_index:
             # If not then load that file's lines into cache.
+            logging.info('Loading file at index: %i' % file_index)
             self._active_file_index = file_index
             with open(self._paths[file_index], 'r') as f:
                 self._line_cache = f.readlines()

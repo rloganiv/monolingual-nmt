@@ -45,7 +45,7 @@ def hyperparam_string(config):
     exp_name += 'embedding_dim_%s__' % (config.model.embedding_dim)
     exp_name += 'hidden_dim_%s__' % (config.model.hidden_dim)
     exp_name += 'n_layers_enc_%d__' % (config.model.n_layers_encoder)
-    exp_name += 'n_layers_dec_%d__' % (config.model.n_layers_decoder)
+    exp_name += 'n_layers_dec_%d' % (config.model.n_layers_decoder)
     return exp_name
 
 
@@ -160,18 +160,24 @@ def main(_):
     gpuid = config.training.gpuid.strip().split(" ")
     gpuid = map(int, gpuid) if str(gpuid[0]) else None
 
-    model = Model(
-        l1_vocab_size=config.data.l1_vocab_size,
-        l2_vocab_size=config.data.l2_vocab_size,
-        rnn_type=config.model.rnn,
-        embedding_size=config.model.embedding_dim,
-        hidden_size=config.model.hidden_dim,
-        n_layers_encoder=config.model.n_layers_encoder,
-        n_layers_decoder=config.model.n_layers_decoder,
-        dropout=config.model.dropout)
-
-    model.l1_embeddings.load(l1_embeddings)
-    model.l2_embeddings.load(l2_embeddings)
+    
+    model_path = os.path.join(config.data.ckpt, 'model.pt')
+    if os.path.exists(model_path): 
+        logging.info('Loading existing checkpoint at: %s' % model_path)
+        model = torch.load(model_path)
+    else:
+        logging.info('Building from scratch')
+        model = Model(
+            l1_vocab_size=config.data.l1_vocab_size,
+            l2_vocab_size=config.data.l2_vocab_size,
+            rnn_type=config.model.rnn,
+            embedding_size=config.model.embedding_dim,
+            hidden_size=config.model.hidden_dim,
+            n_layers_encoder=config.model.n_layers_encoder,
+            n_layers_decoder=config.model.n_layers_decoder,
+            dropout=config.model.dropout)
+        model.l1_embeddings.load(l1_embeddings)
+        model.l2_embeddings.load(l2_embeddings)
 
     if gpuid and len(gpuid)>1:
         model = torch.nn.DataParallel(model.cuda(), device_ids=gpuid)
@@ -257,15 +263,14 @@ def main(_):
                 #     use_maxlen=False,
                 #     unsup=True)
 
-            if iters % 100:
-                logging.info('Iteration: %i' % j)
-                l1_denoising_loss, l2_denoising_loss = zip(denoising_losses)
-                logging.info('L1 Denoising Loss: %0.4f' % np.mean(l1_denoising_loss))
-                logging.info('L2 Denoising Loss: %0.4f' % np.mean(l2_denoising_loss))
+            if not iters % 100:
+                l1_denoising_loss, l2_denoising_loss = zip(*denoising_losses)
+                logging.info('Iteration: %i, L1 Denoising Loss: %0.4f' % (iters, np.mean(l1_denoising_loss)))
+                logging.info('Iteration: %i, L2 Denoising Loss: %0.4f' % (iters, np.mean(l2_denoising_loss)))
 
-            if iters % 1000:
-                # Save
-                pass
+            if not iters % 1000:
+                logging.info('Saving model')
+                torch.save(model, os.path.join(config.data.ckpt, 'model.pt'))
 
 
 if __name__ == '__main__':

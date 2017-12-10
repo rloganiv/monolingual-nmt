@@ -2,7 +2,7 @@
   "training": {
     "optimizer": "adam",
     "clip_c": 1,
-    "gpuid": "",
+    "gpuid": "0",
     "lrate": 0.0002
   },
   "management": {
@@ -12,18 +12,17 @@
   },
   "data": {
     "task": "unsupervised_nmt",
-    "save_dir": "ckpt",
-    "load_dir": false,
+    "ckpt": "ckpt",
     "l1_language": "en",
     "l1_vocab_size": 50001,
-    "l1_train_data": "/home/robby/Downloads/nmt/en_test/",
+    "l1_train_data": "data/corpora/en/",
     "l1_test_data": "",
-    "l1_embeddings": "/home/robby/Downloads/embeddings/en.emb.txt",
+    "l1_embeddings": "data/embeddings/en.emb.txt",
     "l2_language": "fr",
     "l2_vocab_size": 50001,
-    "l2_train_data": "/home/robby/Downloads/nmt/fr_test/",
+    "l2_train_data": "data/corpora/fr/",
     "l2_test_data": "",
-    "l2_embeddings": "/home/robby/Downloads/embeddings/fr.emb.txt",
+    "l2_embeddings": "data/embeddings/fr.emb.txt",
     "max_len": 50,
     "batch_size": 50,
     "valid_batch_size": 8
