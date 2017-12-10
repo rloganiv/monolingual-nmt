@@ -16,10 +16,11 @@ def load_embeddings(path):
     """Loads embeddings and vocabulary from an embedding file.
 
     Args:
-        path: Path to the embedding file.
+        path: (string) Path to the embedding file.
 
     Returns:
-        embeddings, vocab: A Tensor and Vocab object.
+        embeddings: (FloatTensor) vocab_size x embedding_size. 
+        vocab: (Vocab) Vocabulary mapping words to ids.
     """
     with open(path, 'r') as f:
         # Get dimensions from first line
@@ -45,10 +46,10 @@ def pad_and_collate(batch):
     """Collates batches of data, where lists are padded to be the same length.
 
     Args:
-        batch: A batch to be collated.
+        batch: A batch of data to be collated.
 
     Returns:
-        Tensor: The collated data.
+        The collated data.
     """
     if isinstance(batch[0], list):
         out = None
@@ -83,7 +84,7 @@ class Vocab(object):
         """Gets index for a given word.
 
         Args:
-            word: Word to lookup index for.
+            word: (string) Word to lookup index for.
         """
         if word in self._word2idx:
             return self._word2idx[word]
@@ -94,7 +95,7 @@ class Vocab(object):
         """Gets word for a given index.
 
         Args:
-            idx: Index to lookup word for.
+            idx: (int) Index to lookup word for.
         """
         return self._idx2word[idx]
 
