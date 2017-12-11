@@ -203,10 +203,6 @@ class Model(nn.Module):
         else:
             raise ValueError('tgt_lang')
 
-        # Add 'nfeats' dim for OpenNMT compatibility.
-        src = torch.unsqueeze(src, 2)
-        tgt = torch.unsqueeze(tgt, 2)
-
         tgt = tgt[:-1]
         enc_hidden, context = self.encoder(src, src_lang, lengths)
         enc_state = decoder.init_decoder_state(src, context, enc_hidden)

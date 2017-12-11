@@ -16,7 +16,7 @@ from torch.autograd import Variable
 
 from evaluate import evaluate_autoencoder_model, evaluate_alignment_model, evaluate_mono_nmt
 from model_remake import Model
-from utils import load_embeddings, MonolingualDataset, MonolingualDataLoader
+from utils import load_embeddings, greedy_translate, MonolingualDataset, MonolingualDataLoader
 
 FLAGS = None
 USE_CUDA = torch.cuda.is_available()
@@ -37,15 +37,16 @@ def load_config(path):
 def hyperparam_string(config):
     """Hyerparam string."""
     exp_name = ''
-    exp_name += 'task_%s__' % (config.data.task)
-    exp_name += 'l1_%s__' % (config.data.l1_language)
-    exp_name += 'l2_%s__' % (config.data.l2_language)
-    exp_name += 'optimizer_%s__' % (config.training.optimizer)
-    exp_name += 'rnn_%s__' % (config.model.rnn)
-    exp_name += 'embedding_dim_%s__' % (config.model.embedding_dim)
-    exp_name += 'hidden_dim_%s__' % (config.model.hidden_dim)
-    exp_name += 'n_layers_enc_%d__' % (config.model.n_layers_encoder)
-    exp_name += 'n_layers_dec_%d' % (config.model.n_layers_decoder)
+    exp_name += 'task_%s__' % config.data.task
+    exp_name += 'l1_%s__' % config.data.l1_language
+    exp_name += 'l2_%s__' % config.data.l2_language
+    exp_name += 'optimizer_%s__' % config.training.optimizer
+    exp_name += 'backtranslate_%s__' % config.training.backtranslate
+    exp_name += 'rnn_%s__' % config.model.rnn
+    exp_name += 'embedding_dim_%s__' % config.model.embedding_dim
+    exp_name += 'hidden_dim_%s__' % config.model.hidden_dim
+    exp_name += 'n_layers_enc_%d__' % config.model.n_layers_encoder
+    exp_name += 'n_layers_dec_%d' % config.model.n_layers_decoder
     return exp_name
 
 
@@ -75,10 +76,31 @@ def initialize_logging(config):
     logging.info('Batch Size : %d ' % config.data.batch_size)
     logging.info('Optimizer : %s ' % config.training.optimizer)
     logging.info('Learning Rate : %f ' % config.training.lrate)
+    logging.info('Backtranslate : %s ' % config.training.backtranslate)
 
 
 def trainable_params(model):
     return filter(lambda p: p.requires_grad, model.parameters())
+
+
+def transform_inputs(src, lengths, tgt, transpose=True, add_dim=True):
+
+    if add_dim:
+        # Add 'nfeats' dim for OpenNMT compatibility.
+        src = torch.unsqueeze(src, 2)
+        tgt = torch.unsqueeze(tgt, 2)
+
+    # Stupid hack since input dimensions are in the wrong order.
+    if transpose:
+        src = torch.transpose(src, 0, 1).contiguous()
+        tgt = torch.transpose(tgt, 0, 1).contiguous()
+
+    # Stupid hack needed for packing -_-
+    lengths, index = torch.sort(lengths, dim=0, descending=True)
+    src = src[:,index,:]
+    tgt = tgt[:,index,:]
+
+    return src, lengths, tgt, index
 
 
 def train_step(optimizer, criterion, model, src, src_lang, lengths, tgt, tgt_lang):
@@ -93,15 +115,6 @@ def train_step(optimizer, criterion, model, src, src_lang, lengths, tgt, tgt_lan
         output_vocab_size = model.l2_vocab_size
     else:
         raise ValueError('tgt_lang')
-
-    # Stupid hack needed for packing -_-
-    lengths, index = torch.sort(lengths, dim=0, descending=True)
-    src = src[index]
-    tgt = tgt[index]
-
-    # Stupid hack since input dimensions are in the wrong order.
-    src = torch.transpose(src, 0, 1).contiguous()
-    tgt = torch.transpose(tgt, 0, 1).contiguous()
 
     # Model output.
     logits, _, _ = model(src=src, src_lang=src_lang, lengths=lengths, tgt=tgt,
@@ -121,11 +134,6 @@ def train_step(optimizer, criterion, model, src, src_lang, lengths, tgt, tgt_lan
     loss = criterion(masked_logits, masked_tgt)
     loss.backward()
     optimizer.step()
-
-    # Restore original order for output.
-    _, unindex = torch.sort(index)
-    logits = torch.transpose(logits, 0, 1)
-    logits = logits[unindex]
 
     return loss, logits
 
@@ -160,9 +168,8 @@ def main(_):
     gpuid = config.training.gpuid.strip().split(" ")
     gpuid = map(int, gpuid) if str(gpuid[0]) else None
 
-    
     model_path = os.path.join(config.data.ckpt, 'model.pt')
-    if os.path.exists(model_path): 
+    if os.path.exists(model_path):
         logging.info('Loading existing checkpoint at: %s' % model_path)
         model = torch.load(model_path)
     else:
@@ -190,9 +197,6 @@ def main(_):
     optimizer = optim.Adam(trainable_params(model),
                            lr=config.training.lrate,
                            betas=(0.5, 0.999))
-    # TODO: Refactor
-    # if load_dir:
-    #     model.load_state_dict(torch.load(open(load_dir+"/model.pt")))
 
     logging.info('Starting training')
 
@@ -201,6 +205,7 @@ def main(_):
     for i in xrange(1000): # Epochs
 
         denoising_losses = []
+        backtranslation_losses = []
         l1_iter = iter(l1_dataloader)
         l2_iter = iter(l2_dataloader)
 
@@ -214,62 +219,119 @@ def main(_):
                 l1_sample = {k: v.cuda() for k, v in l1_sample.items()}
                 l2_sample = {k: v.cuda() for k, v in l2_sample.items()}
 
-            if iters % 2: # Denoising step
+            if (not iters % 2) and (config.training.backtranslate): # Backtranslation step
 
-                loss_l1, output_l1 = train_step(
+                # Translate l1 to l2 then train on backtranslation from output
+                # back to l1
+                l1_src, l1_lengths, _, l1_index = transform_inputs(
+                    src=l1_sample['tgt'], # Use target since undistorted.
+                    lengths=l1_sample['tgt_len'].data,
+                    tgt=l1_sample['tgt'])
+                l1_to_l2, l1_to_l2_len = greedy_translate(
+                    model=model,
+                    src=l1_src,
+                    src_lang='l1',
+                    lengths=l1_lengths,
+                    tgt_lang='l2',
+                    max_length=config.data.max_length)
+                l1_to_l2, l1_to_l2_len, l1_src, l1_to_l2_index = transform_inputs(
+                    src=l1_to_l2,
+                    lengths=l1_to_l2_len,
+                    tgt=l1_src,
+                    transpose=False,
+                    add_dim=False)
+                l2_to_l1_loss, l2_to_l1_logits = train_step(
                     optimizer=optimizer,
                     criterion=criterion,
                     model=model,
-                    src=l1_sample['src'],
-                    src_lang='l1',
-                    lengths=l1_sample['src_len'].data,
-                    tgt=l1_sample['tgt'],
+                    src=l1_to_l2,
+                    src_lang='l2',
+                    lengths=l1_to_l2_len,
+                    tgt=l1_src,
                     tgt_lang='l1')
 
-                loss_l2, output_l2 = train_step(
+                # Translate l2 to l1 then train on backtranslation from output
+                # back to l2
+                l2_src, l2_lengths, _, l2_index = transform_inputs(
+                    src=l2_sample['tgt'], # Use target since undistorted.
+                    lengths=l2_sample['tgt_len'].data,
+                    tgt=l2_sample['tgt'])
+                l2_to_l1, l2_to_l1_len = greedy_translate(
+                    model=model,
+                    src=l2_src,
+                    src_lang='l2',
+                    lengths=l2_lengths,
+                    tgt_lang='l1',
+                    max_length=config.data.max_length)
+                l2_to_l1, l2_to_l1_len, l2_src, l2_to_l1_index = transform_inputs(
+                    src=l2_to_l1,
+                    lengths=l2_to_l1_len,
+                    tgt=l2_src,
+                    transpose=False,
+                    add_dim=False)
+                l1_to_l2_loss, l1_to_l2_logits = train_step(
                     optimizer=optimizer,
                     criterion=criterion,
                     model=model,
-                    src=l2_sample['src'],
-                    src_lang='l2',
-                    lengths=l2_sample['src_len'].data,
-                    tgt=l2_sample['tgt'],
+                    src=l2_to_l1,
+                    src_lang='l1',
+                    lengths=l2_to_l1_len,
+                    tgt=l2_src,
                     tgt_lang='l2')
-                denoising_losses.append((loss_l1.data[0], loss_l2.data[0]))
 
-            else: # Backtranslation step
+                backtranslation_losses.append(
+                    (l1_to_l2_loss.data[0],
+                     l2_to_l1_loss.data[0]))
 
-                pass
+            else: # Denoising step
+                l1_src, l1_lengths, l1_tgt, l1_index = transform_inputs(
+                    l1_sample['src'],
+                    l1_sample['src_len'].data,
+                    l1_sample['tgt'])
+                l1_loss, l1_output = train_step(
+                    optimizer=optimizer,
+                    criterion=criterion,
+                    model=model,
+                    src=l1_src,
+                    src_lang='l1',
+                    lengths=l1_lengths,
+                    tgt=l1_tgt,
+                    tgt_lang='l1')
 
-                # loss_l1_l2 = train_bt(
-                #     optimizer=optimizer,
-                #     criterion=criterion,
-                #     model=model,
-                #     ntokens=len(vocab_src),
-                #     source=l1_sample['tgt'], # tgt because not distorted
-                #     lengths=l1_sample['tgt_len'],
-                #     input_language='l1',
-                #     use_maxlen=False,
-                #     unsup=True)
+                l2_src, l2_lengths, l2_tgt, l2_index = transform_inputs(
+                    l2_sample['src'],
+                    l2_sample['src_len'].data,
+                    l2_sample['tgt'])
+                l2_loss, l2_output = train_step(
+                    optimizer=optimizer,
+                    criterion=criterion,
+                    model=model,
+                    src=l2_src,
+                    src_lang='l2',
+                    lengths=l2_lengths,
+                    tgt=l2_tgt,
+                    tgt_lang='l2')
 
-                # loss_l2_l1 = train_bt(
-                #     optimizer=optimizer,
-                #     criterion=criterion,
-                #     model=model,
-                #     ntokens=len(vocab_src),
-                #     source=l2_sample['tgt'], # tgt because not distorted
-                #     lengths=l2_sample['tgt_len'],
-                #     input_language='l2',
-                #     use_maxlen=False,
-                #     unsup=True)
+                denoising_losses.append((l1_loss.data[0], l2_loss.data[0]))
 
             if not iters % 100:
                 l1_denoising_loss, l2_denoising_loss = zip(*denoising_losses)
                 logging.info('Iteration: %i, L1 Denoising Loss: %0.4f' % (iters, np.mean(l1_denoising_loss)))
                 logging.info('Iteration: %i, L2 Denoising Loss: %0.4f' % (iters, np.mean(l2_denoising_loss)))
+                denoising_losses = []
+
+                if config.training.backtranslate:
+                    l1_to_l2_bt_loss, l2_to_l1_bt_loss = zip(*backtranslation_losses)
+                    logging.info('Iteration: %i, L1 to L2 Backtranslation Loss: %0.4f' % (iters, np.mean(l1_to_l2_bt_loss)))
+                    logging.info('Iteration: %i, L2 to L1 Backtranslation Loss: %0.4f' % (iters, np.mean(l2_to_l1_bt_loss)))
+                    backtranslation_losses = []
 
             if not iters % 1000:
                 logging.info('Saving model')
+                torch.save(model, os.path.join(config.data.ckpt, 'model.pt'))
+
+            if not iters % config.training.stop_iter:
+                logging.info('Training complete')
                 torch.save(model, os.path.join(config.data.ckpt, 'model.pt'))
 
 

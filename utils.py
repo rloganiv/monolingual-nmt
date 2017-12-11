@@ -7,9 +7,12 @@ import os
 import random
 import torch
 
+from onmt import Beam
 from torch.autograd import Variable
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler, SequentialSampler, BatchSampler
+
+USE_CUDA = torch.cuda.is_available()
 
 
 def load_embeddings(path):
@@ -19,7 +22,7 @@ def load_embeddings(path):
         path: (string) Path to the embedding file.
 
     Returns:
-        embeddings: (FloatTensor) vocab_size x embedding_size. 
+        embeddings: (FloatTensor) vocab_size x embedding_size.
         vocab: (Vocab) Vocabulary mapping words to ids.
     """
     with open(path, 'r') as f:
@@ -63,6 +66,68 @@ def pad_and_collate(batch):
         return {key: pad_and_collate([d[key] for d in batch]) for key in batch[0]}
     error_msg = 'batch contains unexpected type %s'
     raise TypeError(error_msg % type(batch[0]))
+
+
+def greedy_translate(model, src, src_lang, lengths, tgt_lang, max_length):
+
+    # Useful.
+    batch_size = src.size()[1]
+
+    # Use correct decoder and generator.
+    if tgt_lang == 'l1':
+        decoder = model.l1_decoder
+        generator = model.l1_to_vocab
+    elif tgt_lang == 'l2':
+        decoder = model.l2_decoder
+        generator = model.l2_to_vocab
+    else:
+        raise ValueError('tgt_lang')
+
+    # Get encodings of source sentences.
+    enc_hidden, context = model.encoder(src, src_lang, lengths)
+    dec_state = decoder.init_decoder_state(src, context, enc_hidden)
+
+    # Greedy decoding
+    output = []
+    output_lengths = torch.ones(batch_size).long()
+    terminal = torch.ones(batch_size).long()
+    input = torch.ones(batch_size).long()
+    input = torch.unsqueeze(input, 0)
+    input = torch.unsqueeze(input, 2)
+    input = Variable(input, volatile=True)
+
+    for i in range(max_length):
+
+        # Stopping condition - input is all </s> (except at beggining)
+        if i > 0:
+
+            if torch.equal(input.squeeze().data, terminal):
+                break
+
+        # Run one step
+        dec_out, dec_state, attn = decoder(input, context, dec_state,
+                                           context_lengths=lengths)
+        _, preds = generator(dec_out).data.topk(1) # TODO: Dimension arg?
+        # TODO: Make preds volatile?
+
+        # If a sentence is terminated predict </s>
+        if i > 0:
+            preds[input.squeeze().data.eq(1)] = 1
+
+        # Add 1 to length tally of non-terminated sentences
+        output_lengths[preds.ne(1)] += 1
+
+        # Update input and output
+        input = Variable(preds, volatile=True)
+        output.append(preds)
+
+    if not torch.equal(input.squeeze().data, terminal):
+        terminal = torch.unsqueeze(terminal, 0)
+        terminal = torch.unsqueeze(terminal, 2)
+        output.append(terminal)
+
+    output = Variable(torch.cat(output, dim=0))
+    return output, output_lengths
 
 
 class Vocab(object):
@@ -255,4 +320,6 @@ class MonolingualDataLoader(DataLoader):
 
         self.sampler = sampler
         self.batch_sampler = batch_sampler
+
+
 
