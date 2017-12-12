@@ -269,7 +269,7 @@ class MonolingualDataset(Dataset):
             'src': src,
             'src_len': len(src),
             'tgt': tgt,
-            'tgt_len': len(tgt)
+            'tgt_len': len(tgt) if tgt != None else 0
         }
         return out
 
