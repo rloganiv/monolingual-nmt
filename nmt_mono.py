@@ -321,6 +321,7 @@ def main(_):
                 denoising_losses = []
 
                 if config.training.backtranslate:
+                    print l2_to_l1.size()
                     l1_to_l2_bt_loss, l2_to_l1_bt_loss = zip(*backtranslation_losses)
                     logging.info('Iteration: %i, L1 to L2 Backtranslation Loss: %0.4f' % (iters, np.mean(l1_to_l2_bt_loss)))
                     logging.info('Iteration: %i, L2 to L1 Backtranslation Loss: %0.4f' % (iters, np.mean(l2_to_l1_bt_loss)))
@@ -333,6 +334,7 @@ def main(_):
             if not iters % config.training.stop_iter:
                 logging.info('Training complete')
                 torch.save(model, os.path.join(config.data.ckpt, 'model.pt'))
+                sys.exit(0)
 
 
 if __name__ == '__main__':

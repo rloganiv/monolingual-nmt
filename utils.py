@@ -29,10 +29,12 @@ def load_embeddings(path):
         # Get dimensions from first line
         line = f.readline()
         vocab_size, embedding_size = map(int, line.strip().split())
-        vocab_size += 1 # For <unk> token
+        vocab_size += 3
         # Initialize
         embeddings = torch.FloatTensor(vocab_size, embedding_size)
-        embeddings[0].copy_(torch.FloatTensor(embedding_size).uniform_(-0.1, 0.1)) # <unk>
+        embeddings[0].copy_(torch.FloatTensor(embedding_size).uniform_(-0.1, 0.1)) # <pad>
+        embeddings[1].copy_(torch.FloatTensor(embedding_size).uniform_(-0.1, 0.1)) # <unk>
+        embeddings[2].copy_(torch.FloatTensor(embedding_size).uniform_(-0.1, 0.1)) # <s>
         word_list = []
         # Parse file
         for i, line in enumerate(f):
@@ -40,7 +42,7 @@ def load_embeddings(path):
             word, embedding = line[0], line[1:]
             embedding = torch.FloatTensor(map(float, embedding))
             word_list.append(word)
-            embeddings[i+1].copy_(embedding)
+            embeddings[i+3].copy_(embedding)
         vocab = Vocab(word_list)
         return embeddings, vocab
 
@@ -90,19 +92,19 @@ def greedy_translate(model, src, src_lang, lengths, tgt_lang, max_length):
     # Greedy decoding
     output = []
     output_lengths = torch.ones(batch_size).long()
-    terminal = torch.ones(batch_size).long()
-    input = torch.ones(batch_size).long()
-    input = torch.unsqueeze(input, 0)
-    input = torch.unsqueeze(input, 2)
+    terminal = torch.LongTensor(batch_size).fill_(3) # Fill with </s>
+    input = torch.LongTensor(1, batch_size, 1).fill_(2) # Fill with <s>
     input = Variable(input, volatile=True)
+    if USE_CUDA:
+        output_lengths = output_lengths.cuda()
+        terminal = terminal.cuda()
+        input = input.cuda()
 
     for i in range(max_length):
 
         # Stopping condition - input is all </s> (except at beggining)
-        if i > 0:
-
-            if torch.equal(input.squeeze().data, terminal):
-                break
+        if torch.equal(input.squeeze().data, terminal):
+            break
 
         # Run one step
         dec_out, dec_state, attn = decoder(input, context, dec_state,
@@ -110,9 +112,9 @@ def greedy_translate(model, src, src_lang, lengths, tgt_lang, max_length):
         _, preds = generator(dec_out).data.topk(1) # TODO: Dimension arg?
         # TODO: Make preds volatile?
 
-        # If a sentence is terminated predict </s>
-        if i > 0:
-            preds[input.squeeze().data.eq(1)] = 1
+        # If a sentence is terminated predict <pad>
+        preds[input.squeeze().data.eq(3)] = 0
+        preds[input.squeeze().data.eq(0)] = 0
 
         # Add 1 to length tally of non-terminated sentences
         output_lengths[preds.ne(1)] += 1
@@ -127,6 +129,8 @@ def greedy_translate(model, src, src_lang, lengths, tgt_lang, max_length):
         output.append(terminal)
 
     output = Variable(torch.cat(output, dim=0))
+    if USE_CUDA:
+        output = output.cuda()
     return output, output_lengths
 
 
@@ -138,7 +142,7 @@ class Vocab(object):
     """
 
     def __init__(self, word_list):
-        self._idx2word = ['<unk>']
+        self._idx2word = ['<pad>', '<unk>', '<s>']
         self._idx2word.extend(word_list)
         self._word2idx = {w: i for i, w in enumerate(self._idx2word)}
 
@@ -176,11 +180,12 @@ class MonolingualDataset(Dataset):
         train: Whether or not the dataset is used for training.
     """
 
-    def __init__(self, folder, vocab, eos_token='</s>', train=False):
+    def __init__(self, folder, vocab, eos_token='</s>', sos_token='<s>', train=False):
         self._paths = [os.path.join(folder, x) for x in os.listdir(folder)]
         self._line_counts = [self._line_count(path) for path in self._paths]
         self._vocab = vocab
         self._eos_token = eos_token
+        self._sos_token = sos_token
         self._train = train
         self._active_file_index = None
         self._line_cache = None
@@ -253,7 +258,7 @@ class MonolingualDataset(Dataset):
         # Convert global index to within file line index and retrieve data.
         index -= sum(self._line_counts[:file_index]) + 1
         line = self._line_cache[index]
-        words = line.strip().split() + [self._eos_token]
+        words = [self._sos_token] + line.strip().split() + [self._eos_token]
         word_ids = [self._vocab.word2idx(word) for word in words]
         # Prepare output
         if self._train:
