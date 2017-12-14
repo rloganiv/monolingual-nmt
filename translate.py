@@ -1,3 +1,4 @@
+import copy
 import time
 import torch
 import torch.nn as nn
@@ -64,7 +65,7 @@ def translate(model, src, src_lang, lengths, beam_size, max_trg_len, target_voca
          # Decode one step for each word in beam
         for i in range(beam_size):
             word = cur_words[i]
-            dec_state = cur_dec_states[i]
+            dec_state = copy.copy(cur_dec_states[i])
             if word == beam.pad:
                 next_dec_states.append(None)
             else:
