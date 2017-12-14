@@ -92,6 +92,12 @@ if __name__ == '__main__':
 	# Load saved model 
 	print "Loading model"
 	model = torch.load('ckpt-bt/model.pt').cpu()
+	model.dropout = 0
+	model.encoder.rnn.dropout = 0
+	model.l1_decoder.dropout = torch.nn.Dropout(0)
+	model.l1_decoder.rnn.dropout = torch.nn.Dropout(0)
+	model.l2_decoder.dropout = torch.nn.Dropout(0)
+	model.l2_decoder.rnn.dropout = torch.nn.Dropout(0)
 
 	# Load embeddings and (test) datasets
 	l1_embeddings, l1_vocab = load_embeddings(path=config.data.l1_embeddings)
