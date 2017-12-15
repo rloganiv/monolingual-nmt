@@ -123,7 +123,7 @@ def train_step(optimizer, criterion, model, src, src_lang, lengths, tgt, tgt_lan
     # Fancy masking operations.
     flattened = logits.view(-1, output_vocab_size)
 
-    tgt = tgt[:-1].view(-1) # Since the last output is omitted by the model.
+    tgt = tgt[1:].view(-1)
     mask = tgt.gt(0)
     masked_tgt = tgt.masked_select(mask)
 
@@ -322,6 +322,7 @@ def main(_):
 
                 if config.training.backtranslate:
                     print l2_to_l1.size()
+                    print l2_to_l1
                     l1_to_l2_bt_loss, l2_to_l1_bt_loss = zip(*backtranslation_losses)
                     logging.info('Iteration: %i, L1 to L2 Backtranslation Loss: %0.4f' % (iters, np.mean(l1_to_l2_bt_loss)))
                     logging.info('Iteration: %i, L2 to L1 Backtranslation Loss: %0.4f' % (iters, np.mean(l2_to_l1_bt_loss)))

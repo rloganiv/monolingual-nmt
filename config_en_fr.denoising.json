@@ -27,7 +27,7 @@
   "model": {
     "rnn": "GRU",
     "embedding_dim": 300,
-    "hidden_dim": 300,
+    "hidden_dim": 600,
     "dropout": 0.3,
     "n_layers_encoder": 2,
     "n_layers_decoder": 2

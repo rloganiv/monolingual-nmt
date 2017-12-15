@@ -90,43 +90,50 @@ def greedy_translate(model, src, src_lang, lengths, tgt_lang, max_length):
     dec_state = decoder.init_decoder_state(src, context, enc_hidden)
 
     # Greedy decoding
-    output = []
     output_lengths = torch.ones(batch_size).long()
-    terminal = torch.LongTensor(batch_size).fill_(3) # Fill with </s>
     input = torch.LongTensor(1, batch_size, 1).fill_(2) # Fill with <s>
-    input = Variable(input, volatile=True)
+    all_true = torch.ones(batch_size).byte()
     if USE_CUDA:
         output_lengths = output_lengths.cuda()
-        terminal = terminal.cuda()
         input = input.cuda()
+        all_true = all_true.cuda()
+    output = [input]
+    input = Variable(input, volatile=True)
 
     for i in range(max_length):
-
-        # Stopping condition - input is all </s> (except at beggining)
-        if torch.equal(input.squeeze().data, terminal):
-            break
 
         # Run one step
         dec_out, dec_state, attn = decoder(input, context, dec_state,
                                            context_lengths=lengths)
-        _, preds = generator(dec_out).data.topk(1) # TODO: Dimension arg?
-        # TODO: Make preds volatile?
+        _, preds = generator(dec_out).data.topk(1)
 
-        # If a sentence is terminated predict <pad>
-        preds[input.squeeze().data.eq(3)] = 0
-        preds[input.squeeze().data.eq(0)] = 0
 
-        # Add 1 to length tally of non-terminated sentences
-        output_lengths[preds.ne(1)] += 1
+        # If prev token is <pad> or </s> predict <pad>
+        terminated = input.squeeze().data.eq(0)
+        terminated += input.squeeze().data.eq(3)
+        preds[terminated] = 0
+
+        # If predicted token is not <pad> add one to output_length
+        is_pad = preds.squeeze().eq(0)
+        output_lengths[1 - is_pad] += 1
 
         # Update input and output
         input = Variable(preds, volatile=True)
         output.append(preds)
 
-    if not torch.equal(input.squeeze().data, terminal):
-        terminal = torch.unsqueeze(terminal, 0)
-        terminal = torch.unsqueeze(terminal, 2)
-        output.append(terminal)
+        # Stopping condition - new input is all </s> or <pad>
+        if torch.equal(terminated, all_true):
+            break
+
+    # Terminate any persisting sentences
+    terminated = input.squeeze().data.eq(0)
+    terminated += input.squeeze().data.eq(3)
+    if not torch.equal(terminated, all_true):
+        preds = torch.LongTensor(1, batch_size, 1).fill_(3)
+        if USE_CUDA:
+            preds = preds.cuda()
+        preds[terminated] = 0
+        output.append(preds)
 
     output = Variable(torch.cat(output, dim=0))
     if USE_CUDA:
@@ -235,7 +242,7 @@ class MonolingualDataset(Dataset):
         """
         n = len(word_ids)
         out = list(word_ids) # Copy
-        swap_indices = list(range(n-2))
+        swap_indices = list(range(1, n-2))
         random.shuffle(swap_indices)
         swap_indices = swap_indices[:n//2]
         for ind in swap_indices:
