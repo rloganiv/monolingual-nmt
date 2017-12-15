@@ -1,4 +1,5 @@
 """Monolingual NMT Training Script"""
+
 import argparse
 import json
 import logging
@@ -15,27 +16,16 @@ from numpy.random import sample
 from torch.autograd import Variable
 
 from evaluate import evaluate_autoencoder_model, evaluate_alignment_model, evaluate_mono_nmt
-from model_remake import Model
-from utils import load_embeddings, greedy_translate, MonolingualDataset, MonolingualDataLoader
+from model import Model
+from utils import load_config, load_embeddings, greedy_translate
+from utils import MonolingualDataset, MonolingualDataLoader
 
 FLAGS = None
 USE_CUDA = torch.cuda.is_available()
 
 
-def load_config(path):
-    """Loads the configuration.
-
-    Args:
-        path: Path to configuration file.
-    """
-    to_tuple = lambda d: namedtuple('X', d.keys())(*d.values())
-    with open(path, 'r') as f:
-        config = json.loads(f.read(), object_hook=to_tuple)
-    return config
-
-
 def hyperparam_string(config):
-    """Hyerparam string."""
+    """String detailing experiment hyperparameters."""
     exp_name = ''
     exp_name += 'task_%s__' % config.data.task
     exp_name += 'l1_%s__' % config.data.l1_language
@@ -51,6 +41,7 @@ def hyperparam_string(config):
 
 
 def initialize_logging(config):
+    """Initializes logging and prints experiment setup to the log."""
     experiment_name = hyperparam_string(config)
     logging.basicConfig(
         level=logging.INFO,
@@ -80,10 +71,21 @@ def initialize_logging(config):
 
 
 def trainable_params(model):
+    """Returns only the trainable parameters of a model."""
     return filter(lambda p: p.requires_grad, model.parameters())
 
 
 def transform_inputs(src, lengths, tgt, transpose=True, add_dim=True):
+    """Performs length sorting/dimension additions needed to feed input into
+    encoder.
+
+    Args:
+        src: (LongTensor) len x batch_size x (opt. nfeats). Source sentences.
+        lengths: (LongTensor) batch_size. Lengths of source sentences.
+        tgt: (LongTensor) len x batch_size x (opt. nfeats). Target sentences.
+        transpose: Whether to transpose first two dimensions of the data (e.g.
+            batch size comes first.)
+    """
 
     if add_dim:
         # Add 'nfeats' dim for OpenNMT compatibility.

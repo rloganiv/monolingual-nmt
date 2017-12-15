@@ -15,6 +15,18 @@ from torch.utils.data.sampler import Sampler, SequentialSampler, BatchSampler
 USE_CUDA = torch.cuda.is_available()
 
 
+def load_config(path):
+    """Loads the configuration.
+
+    Args:
+        path: Path to configuration file.
+    """
+    to_tuple = lambda d: namedtuple('X', d.keys())(*d.values())
+    with open(path, 'r') as f:
+        config = json.loads(f.read(), object_hook=to_tuple)
+    return config
+
+
 def load_embeddings(path):
     """Loads embeddings and vocabulary from an embedding file.
 
