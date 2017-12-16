@@ -1,0 +1,35 @@
+{
+  "training": {
+    "optimizer": "adam",
+    "clip_c": 1,
+    "gpuid": "1",
+    "lrate": 0.0002,
+    "backtranslate": true,
+    "stop_iter": 300000
+  },
+  "data": {
+    "task": "unsupervised_nmt",
+    "ckpt": "ckpt-bt",
+    "l1_language": "en",
+    "l1_vocab_size": 50003,
+    "l1_train_data": "/mnt/nmt/data/en",
+    "l1_test_data": "",
+    "l1_embeddings": "/mnt/nmt/data/en.emb.txt",
+    "l2_language": "fr",
+    "l2_vocab_size": 50003,
+    "l2_train_data": "/mnt/nmt/data/fr",
+    "l2_test_data": "",
+    "l2_embeddings": "/mnt/nmt/data/fr.emb.txt",
+    "max_length": 50,
+    "batch_size": 50,
+    "valid_batch_size": 8
+  },
+  "model": {
+    "rnn": "GRU",
+    "embedding_dim": 300,
+    "hidden_dim": 600,
+    "dropout": 0.3,
+    "n_layers_encoder": 2,
+    "n_layers_decoder": 2
+  }
+}
