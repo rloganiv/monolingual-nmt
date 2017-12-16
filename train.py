@@ -11,11 +11,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from collections import namedtuple
 from numpy.random import sample
 from torch.autograd import Variable
 
-from evaluate import evaluate_autoencoder_model, evaluate_alignment_model, evaluate_mono_nmt
 from model import Model
 from utils import load_config, load_embeddings, greedy_translate
 from utils import MonolingualDataset, MonolingualDataLoader

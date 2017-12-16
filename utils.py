@@ -7,6 +7,7 @@ import os
 import random
 import torch
 
+from collections import namedtuple
 from onmt import Beam
 from torch.autograd import Variable
 from torch.utils.data import Dataset, DataLoader
@@ -78,6 +79,8 @@ def pad_and_collate(batch):
         return Variable(torch.LongTensor(batch))
     elif isinstance(batch[0], collections.Mapping):
         return {key: pad_and_collate([d[key] for d in batch]) for key in batch[0]}
+    elif batch[0] is None:
+        return None
     error_msg = 'batch contains unexpected type %s'
     raise TypeError(error_msg % type(batch[0]))
 
@@ -275,7 +278,7 @@ class MonolingualDataset(Dataset):
             with open(self._paths[file_index], 'r') as f:
                 self._line_cache = f.readlines()
         # Convert global index to within file line index and retrieve data.
-        index -= sum(self._line_counts[:file_index]) + 1
+        index -= sum(self._line_counts[:file_index])
         line = self._line_cache[index]
         words = [self._sos_token] + line.strip().split() + [self._eos_token]
         word_ids = [self._vocab.word2idx(word) for word in words]
@@ -288,7 +291,7 @@ class MonolingualDataset(Dataset):
             'src': src,
             'src_len': len(src),
             'tgt': tgt,
-            'tgt_len': len(tgt) if tgt != None else 0
+            'tgt_len': len(tgt) if tgt else 0
         }
         return out
 

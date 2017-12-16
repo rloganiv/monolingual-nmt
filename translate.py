@@ -1,5 +1,6 @@
 import argparse
 import copy
+import os
 import time
 import torch
 import torch.nn as nn
@@ -8,9 +9,10 @@ import torch.nn.functional as F
 
 from torch.autograd import Variable
 
-from train import load_config, transform_inputs
-from model import Model
-from utils import load_embeddings, MonolingualDataset, MonolingualDataLoader
+from train import transform_inputs
+from model_remake import Model
+from utils import load_config, load_embeddings, greedy_translate
+from utils import MonolingualDataset, MonolingualDataLoader
 
 
 USE_CUDA = torch.cuda.is_available()
@@ -139,7 +141,7 @@ def idxs_to_string(idxs, idx2word):
     return ' '.join(words)
 
 
-def translate(model, src, src_lang, lengths, beam_size, max_trg_len, target_vocab, verbose=False):
+def translate(model, src, src_lang, lengths, beam_size, max_tgt_len, target_vocab, verbose=False):
     """Translates source sentence using beam search.
 
     Args:
@@ -147,7 +149,7 @@ def translate(model, src, src_lang, lengths, beam_size, max_trg_len, target_voca
         src - sentence from source langauge (batch size 1)
         src_lang - 'l1' or 'l2'
         lengths - length of src
-        max_trg_len - maximum length of decoded sentence
+        max_tgt_len - maximum length of decoded sentence
         verbose - at each decoding step, prints out highest probability sentence
 
     Returns:
@@ -166,14 +168,14 @@ def translate(model, src, src_lang, lengths, beam_size, max_trg_len, target_voca
     enc_hidden, context = model.encoder(src, src_lang, lengths)
     dec_state = decoder.init_decoder_state(src, context, enc_hidden)
 
-    beam = Beam(beam_size, target_vocab._word2idx, dec_state)
+    beam = Beam(beam_size, target_vocab._word2idx, dec_state, cuda=USE_CUDA)
     idx2word = target_vocab._idx2word
     vocab_size = len(idx2word)
     logsoftmax = torch.nn.LogSoftmax() # Use log softmax since beam search code adds probabilities
 
     done = False
     depth = 0
-    while (not done) and (depth < max_trg_len):
+    while (not done) and (depth < max_tgt_len):
         depth += 1
         next_word_lk = torch.zeros((beam_size, vocab_size)) # Likelihood of next words
         next_dec_states = []
@@ -188,8 +190,10 @@ def translate(model, src, src_lang, lengths, beam_size, max_trg_len, target_voca
                 next_dec_states.append(None)
             else:
                 word = Variable(torch.LongTensor([word])).unsqueeze(0).unsqueeze(2)
+                if USE_CUDA:
+                    word = word.cuda()
                 dec_out, dec_state, _ = decoder(word, context, dec_state,
-                                               context_lengths=lengths)
+                                                context_lengths=lengths)
                 preds = generator(dec_out)
                 preds_prob = logsoftmax(preds.squeeze(1))
                 # Probabilities of next words
@@ -208,7 +212,7 @@ def main(_):
     # Load saved model
     print "Loading model"
     model_path = os.path.join(config.data.ckpt, 'model.pt')
-    model = torch.load(model_path).cpu()
+    model = torch.load(model_path)
     model.eval()
 
     # Load embeddings and (test) datasets
@@ -219,45 +223,36 @@ def main(_):
     start = time.time()
     beam_size = 12
 
-    test_dirs = ['src_en', 'src_fr']
-    test_dirs = ['data/test' + f for f in test_dirs]
+    test_dirs = ['data/test_en', 'data/test_fr']
 
     for test_dir in test_dirs:
-        src_lang = test_dir.split("_")[2]
+        src_lang = test_dir.split('_')[-1]
         if src_lang == 'en':
             src_lang = 'l1'
             src_vocab = l1_vocab
-            trg_lang = 'l2'
-            trg_vocab = l2_vocab
+            tgt_lang = 'l2'
+            tgt_vocab = l2_vocab
         elif src_lang == 'fr':
             src_lang = 'l2'
             src_vocab = l2_vocab
-            trg_lang = 'l1'
-            trg_vocab = l1_vocab
+            tgt_lang = 'l1'
+            tgt_vocab = l1_vocab
         else:
             ValueError('source language')
 
         test_dataset = MonolingualDataset(folder=test_dir, vocab=src_vocab)
+        test_loader = MonolingualDataLoader(test_dataset)
         test_file = test_dataset._paths[0].split('/')[2]
         print test_file, src_lang
         f = open('test_translated/' + test_file + '_translated', 'w')
-        for i in range(test_dataset._line_counts[0]):
-            sample = test_dataset[i]
-            # Hacks needed to get test batches of size 1
-            src = Variable(torch.LongTensor(sample['src'])).unsqueeze(0)
-            lengths = torch.LongTensor([sample['src_len']])
-            # End hack
+        for i, sample in enumerate(test_loader):
+            sample = {k: v.cuda() for k, v in sample.items() if v is not None}
             src, lengths, _, _ = transform_inputs(
-                src=src,
-                lengths=lengths,
-                tgt=src)
-            translated = translate(model=model,
-                src=src,
-                src_lang=src_lang,
-                lengths=lengths,
-                beam_size=beam_size,
-                max_trg_len=config.data.max_length,
-                target_vocab=trg_vocab)
+                src=sample['src'],
+                lengths=sample['src_len'],
+                tgt=sample['src'])
+            translated = translate(model, src, src_lang, lengths.data, beam_size,
+                                   config.data.max_length, tgt_vocab)
             f.write(translated+'\n')
         f.close()
         print("Time to translate file (secs): ",  time.time() - start)
